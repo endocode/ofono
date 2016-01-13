@@ -266,8 +266,8 @@ static void ublox_pre_sim(struct ofono_modem *modem)
 
 	DBG("%p", modem);
 
-	ofono_devinfo_create(modem, 0, "atmodem", data->aux);
-	sim = ofono_sim_create(modem, OFONO_VENDOR_UBLOX, "atmodem",
+	ofono_devinfo_create(modem, data->vendor_family, "atmodem", data->aux);
+	sim = ofono_sim_create(modem, data->vendor_family, "atmodem",
 					data->aux);
 
 	if (sim)
@@ -282,9 +282,9 @@ static void ublox_post_sim(struct ofono_modem *modem)
 
 	DBG("%p", modem);
 
-	gprs = ofono_gprs_create(modem, OFONO_VENDOR_UBLOX, "atmodem",
+	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
 					data->aux);
-	gc = ofono_gprs_context_create(modem, OFONO_VENDOR_UBLOX, "atmodem",
+	gc = ofono_gprs_context_create(modem, data->vendor_family, "atmodem",
 					data->modem);
 
 	if (gprs && gc)
@@ -295,7 +295,7 @@ static void ublox_post_online(struct ofono_modem *modem)
 {
 	struct ublox_data *data = ofono_modem_get_data(modem);
 
-	ofono_netreg_create(modem, 0, "atmodem", data->aux);
+	ofono_netreg_create(modem, data->vendor_family, "atmodem", data->aux);
 }
 
 static struct ofono_modem_driver ublox_driver = {
