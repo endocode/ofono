@@ -1145,6 +1145,138 @@ static struct {
 	{ }
 };
 
+static struct udev *udev_ctx;
+
+/*
+ * Check if syspath represents a child TTY device under its parent USB device
+ * given as parent_syspath. For example,
+ *  - syspath: /devices/pci0000:00/0000:00:14.0/usb3/3-1/3-1:1.2/tty/ttyACM0
+ *  - parent_syspath: /devices/pci0000:00/0000:00:14.0/usb3/3-1/3-1:1.2
+ */
+static gboolean is_usb_subtty_device(const char *syspath,
+				     const char *parent_syspath)
+{
+	if (!strstr(syspath, "usb"))
+		return FALSE;
+
+	if (!strstr(syspath, parent_syspath))
+		return FALSE;
+
+	return TRUE;
+}
+
+/*
+ * Finds out a nearest parent device representing the corresponding USB device.
+ */
+static struct udev_device *find_parent_usbdev(const char *vendor,
+				const char *model, struct udev_device *device)
+{
+	struct udev_device *device_parent;
+	const char *idv, *idp;
+
+	device_parent = device;
+	do {
+		device_parent = udev_device_get_parent(device_parent);
+
+		idv = udev_device_get_property_value(device_parent,
+				"ID_VENDOR_ID");
+		idp = udev_device_get_property_value(device_parent,
+				"ID_MODEL_ID");
+
+		if (g_strcmp0(idv, vendor) == 0 && g_strcmp0(idp, model) == 0)
+			break;
+	} while(device_parent);
+
+	return device_parent;
+}
+
+/*
+ * add_subtty_device() first finds out a nearest parent device that represents
+ * the corresponding USB device. And then adds the parent device.
+ *
+ * For example, the device at the bottom is
+ * /sys/devices/pci0000:00/0000:00:14.0/usb3/3-1/3-1:1.2/tty/ttyACM0,
+ * its nearest parent device that represents the actual modem is
+ * /sys/devices/pci0000:00/0000:00:14.0/usb3/3-1.
+ */
+static void add_subtty_device(const char *syspath, const char *driver,
+			      const char *vendor, const char *model,
+			      struct udev_device *device)
+{
+	const char *devname;
+	const char *syspath_parent;
+	struct udev_device *device_parent;
+
+	devname = udev_device_get_devnode(device);
+	if (!devname)
+		return;
+
+	if (!driver)
+		return;
+
+	device_parent = find_parent_usbdev(vendor, model, device);
+	if (!device_parent)
+		return;
+
+	syspath_parent = udev_device_get_syspath(device_parent);
+	if (!syspath_parent)
+		return;
+
+	DBG("adding syspath %s, driver %p", syspath_parent, driver);
+	add_device(syspath_parent, devname, driver, vendor, model, device);
+}
+
+/*
+ * check_subtty_device() performs a special detection of a sub-TTY device,
+ * which is a child of an existing USB device. /dev/ttyACM0 made by an
+ * USB-ethernet interface is a good example.
+ * Unfortunately such devices cannot be uniquely determined under the USB
+ * subsystem, because udev recognizes the devices as a pair of bogus vendor ID
+ * and model ID, given from a individual USB host controller. Thus we need to
+ * do a manual udev enumeration again, to be able to detect the TTY device
+ * that resides under a given parent USB device.
+ *
+ * For example, when syspath is
+ * "/devices/pci0000:00/0000:00:14.0/usb3/3-1/3-1:1.2/tty/ttyACM0",
+ * parent_syspath would be
+ * "/devices/pci0000:00/0000:00:14.0/usb3/3-1/3-1:1.2".
+ */
+static void check_subtty_device(const char *parent_syspath, const char *driver,
+				const char *vendor, const char *model)
+{
+	struct udev_enumerate *enumerate;
+	struct udev_list_entry *entry;
+	struct udev_device *device;
+	const char *syspath;
+
+	enumerate = udev_enumerate_new(udev_ctx);
+	if (enumerate == NULL)
+		return;
+
+	udev_enumerate_add_match_subsystem(enumerate, "tty");
+	udev_enumerate_scan_devices(enumerate);
+
+	entry = udev_enumerate_get_list_entry(enumerate);
+	while (entry) {
+		syspath = udev_list_entry_get_name(entry);
+
+		if (!is_usb_subtty_device(syspath, parent_syspath))
+			continue;
+
+		device = udev_device_new_from_syspath(udev_ctx, syspath);
+		if (device != NULL) {
+			add_subtty_device(syspath, driver, vendor, model,
+					  device);
+			udev_device_unref(device);
+			break;
+		}
+
+		entry = udev_list_entry_get_next(entry);
+	}
+
+	udev_enumerate_unref(enumerate);
+}
+
 static void check_usb_device(struct udev_device *device)
 {
 	struct udev_device *usb_device;
@@ -1226,6 +1358,10 @@ static void check_usb_device(struct udev_device *device)
 	}
 
 	add_device(syspath, devname, driver, vendor, model, device);
+
+	/* U-blox-specific checks for sub-TTY devices */
+	if (g_str_equal(driver, "ublox") == TRUE)
+		check_subtty_device(syspath, driver, vendor, model);
 }
 
 static void check_device(struct udev_device *device)
@@ -1312,7 +1448,6 @@ static void enumerate_devices(struct udev *context)
 	g_hash_table_foreach_remove(modem_list, create_modem, NULL);
 }
 
-static struct udev *udev_ctx;
 static struct udev_monitor *udev_mon;
 static guint udev_watch = 0;
 static guint udev_delay = 0;
