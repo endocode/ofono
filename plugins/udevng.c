@@ -1120,6 +1120,12 @@ static struct {
 	{ "samsung",	"kalmia"			},
 	{ "quectel",	"option",	"05c6", "9090"	},
 	{ "ublox",	"cdc_acm",	"1546", "1102"	},
+	{ "ublox",	"cdc_acm",	"1546", "1141"	},
+	{ "ublox",	"usb",		"1546", "1141"	},
+	{ "ublox",	"cdc_ether",	"1546", "1143"	},
+	{ "ublox",	"usb",		"1546", "1143"	},
+	{ "ublox",	"rndis_host",	"1546", "1146"	},
+	{ "ublox",	"usb",		"1546", "1146"	},
 	{ }
 };
 
