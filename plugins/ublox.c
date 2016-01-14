@@ -285,7 +285,7 @@ static void ublox_post_sim(struct ofono_modem *modem)
 	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
 					data->aux);
 	gc = ofono_gprs_context_create(modem, data->vendor_family, "atmodem",
-					data->modem);
+					data->modem ? data->modem : data->aux);
 
 	if (gprs && gc)
 		ofono_gprs_add_context(gprs, gc);
