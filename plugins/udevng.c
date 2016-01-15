@@ -1257,8 +1257,7 @@ static void check_subtty_device(const char *parent_syspath, const char *driver,
 	udev_enumerate_add_match_subsystem(enumerate, "tty");
 	udev_enumerate_scan_devices(enumerate);
 
-	entry = udev_enumerate_get_list_entry(enumerate);
-	while (entry) {
+	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(enumerate)) {
 		syspath = udev_list_entry_get_name(entry);
 
 		if (!is_usb_subtty_device(syspath, parent_syspath))
@@ -1271,8 +1270,6 @@ static void check_subtty_device(const char *parent_syspath, const char *driver,
 			udev_device_unref(device);
 			break;
 		}
-
-		entry = udev_list_entry_get_next(entry);
 	}
 
 	udev_enumerate_unref(enumerate);
