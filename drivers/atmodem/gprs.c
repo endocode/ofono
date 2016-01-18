@@ -101,6 +101,17 @@ static void at_cgreg_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
+	if (gd->vendor == OFONO_VENDOR_UBLOX_TOBY_L2 && status == 4) {
+		/*
+		 * UBX-13002752-R33 says:
+		 * If the module is registered to E-UTRAN the <stat> parameter is 4.
+		 * So this means we are actually registered.
+		 * It could also mean that state is unknown, but if we are
+		 * here we know we already registered.
+		 */
+		 status = 1;
+	}
+
 	cb(&error, status, cbd->data);
 }
 
@@ -342,16 +353,23 @@ static void gprs_initialized(gboolean ok, GAtResult *result, gpointer user_data)
 	struct gprs_data *gd = ofono_gprs_get_data(gprs);
 
 	g_at_chat_register(gd->chat, "+CGEV:", cgev_notify, FALSE, gprs, NULL);
-	g_at_chat_register(gd->chat, "+CGREG:", cgreg_notify,
-						FALSE, gprs, NULL);
+
+	/*
+	 * You really don't want to get CGREG notifications on Toby l2.
+	 * It sends 4 when BOTH for unknown state and for registered in LTE.
+	 * +UREG usage is recommended by them.
+	 */
+	if (gd->vendor != OFONO_VENDOR_UBLOX_TOBY_L2)
+		g_at_chat_register(gd->chat, "+CGREG:", cgreg_notify,
+							FALSE, gprs, NULL);
 
 	switch (gd->vendor) {
 	case OFONO_VENDOR_HUAWEI:
 		g_at_chat_register(gd->chat, "^MODE:", huawei_mode_notify,
 						FALSE, gprs, NULL);
 		break;
-	case OFONO_VENDOR_UBLOX:
 	case OFONO_VENDOR_UBLOX_TOBY_L2:
+	case OFONO_VENDOR_UBLOX:
 		g_at_chat_register(gd->chat, "+UREG:", ublox_ureg_notify,
 						FALSE, gprs, NULL);
 		g_at_chat_send(gd->chat, "AT+UREG=1", none_prefix,
