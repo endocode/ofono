@@ -210,6 +210,14 @@ static void at_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
+	/* With the high throughput mode of TOBY-L2, ofono doesn't need to do
+	 * PPP authentication at all. So just call gcd->cb() and return.
+	 * */
+	if (gcd->vendor == OFONO_VENDOR_UBLOX_TOBY_L2) {
+		CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
+		return;
+	}
+
 	if (gcd->vendor == OFONO_VENDOR_SIMCOM_SIM900)
 		sprintf(buf, "ATD*99***%u#", gcd->active_context);
 	else
