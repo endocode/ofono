@@ -60,6 +60,7 @@ struct gprs_context_data {
 	GAtChat *chat;
 	unsigned int active_context;
 	GAtPPPAuthMethod auth_method;
+	char apn[OFONO_GPRS_MAX_APN_LENGTH + 1];
 	char username[OFONO_GPRS_MAX_USERNAME_LENGTH + 1];
 	char password[OFONO_GPRS_MAX_PASSWORD_LENGTH + 1];
 	GAtPPP *ppp;
@@ -191,6 +192,27 @@ static void at_cgdata_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	setup_ppp(gc);
 }
 
+static void at_ucgdflt_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		struct ofono_error error;
+
+		gcd->active_context = 0;
+		gcd->state = STATE_IDLE;
+
+		decode_at_error(&error, g_at_result_final_response(result));
+		gcd->cb(&error, gcd->cb_data);
+		return;
+	}
+
+	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
+}
+
 static void at_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
@@ -211,10 +233,20 @@ static void at_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	}
 
 	/* With the high throughput mode of TOBY-L2, ofono doesn't need to do
-	 * PPP authentication at all. So just call gcd->cb() and return.
-	 * */
+	 * PPP authentication at all. Instead, step into the next step, which
+	 * is initialization of PDP context using AT+UCGDFLT.
+	 * (UBX-13002752 - R33)
+	 */
 	if (gcd->vendor == OFONO_VENDOR_UBLOX_TOBY_L2) {
-		CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
+		char buf[OFONO_GPRS_MAX_APN_LENGTH + 128];
+
+		/* NOTE: gcd->cb() must not be called here, as at_ucgdflt_cb()
+		 * will call the callback. Calling the callback twice would
+		 * mess up with assumption of the D-BUS library... */
+		snprintf(buf, sizeof(buf), "AT+UCGDFLT=%u,\"IP\",\"%s\"",
+				gcd->active_context, gcd->apn);
+		g_at_chat_send(gcd->chat, buf, none_prefix,
+				at_ucgdflt_cb, gc, NULL);
 		return;
 	}
 
@@ -250,6 +282,7 @@ static void at_gprs_activate_primary(struct ofono_gprs_context *gc,
 	gcd->active_context = ctx->cid;
 	gcd->cb = cb;
 	gcd->cb_data = data;
+	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
 	memcpy(gcd->username, ctx->username, sizeof(ctx->username));
 	memcpy(gcd->password, ctx->password, sizeof(ctx->password));
 
