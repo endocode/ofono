@@ -142,6 +142,11 @@ static void cfun_enable(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
+	if (data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE)
+		/* use bridged mode until routed mode support is added */
+		g_at_chat_send(data->aux, "AT+UBMCONF=2", none_prefix,
+						NULL, NULL, NULL);
+
 	ofono_modem_set_powered(modem, TRUE);
 }
 
@@ -292,8 +297,15 @@ static void ublox_post_sim(struct ofono_modem *modem)
 
 	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
 					data->aux);
-	gc = ofono_gprs_context_create(modem, data->vendor_family, "atmodem",
-					data->modem ? data->modem : data->aux);
+	if (data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE)
+		gc = ofono_gprs_context_create(modem, data->vendor_family,
+						"ubloxmodem",
+						data->modem ? data->modem : data->aux);
+
+	else
+		gc = ofono_gprs_context_create(modem, data->vendor_family,
+						"atmodem",
+						data->modem ? data->modem : data->aux);
 
 	if (gprs && gc)
 		ofono_gprs_add_context(gprs, gc);
