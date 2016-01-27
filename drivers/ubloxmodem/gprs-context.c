@@ -53,6 +53,8 @@ static const char *cgcontrdp_prefix[] = { "+CGCONTRDP:", NULL };
 struct gprs_context_data {
 	GAtChat *chat;
 	unsigned int active_context;
+	unsigned int active_context_from_event;
+	unsigned int gprs_cid;
 	char apn[OFONO_GPRS_MAX_APN_LENGTH + 1];
 	enum state state;
 	ofono_gprs_context_cb_t cb;
@@ -169,24 +171,41 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
 }
 
+static int ublox_read_ip_config(struct ofono_gprs_context *gc)
+{
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	char buf[64];
+
+	/* read ip configuration info */
+	snprintf(buf, sizeof(buf), "AT+CGCONTRDP=%u", gcd->active_context);
+	return g_at_chat_send(gcd->chat, buf, cgcontrdp_prefix,
+				cgcontrdp_cb, gc, NULL);
+
+}
+
 static void cgact_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
-	char buf[64];
 
 	DBG("ok %d", ok);
 	if (!ok) {
-		gcd->active_context = 0;
-		gcd->state = STATE_IDLE;
+		if (gcd->active_context_from_event) {
+			/*
+			 * Proceed with an already active context known from a
+			 * CGEV ME PDN ACT. That one should be good enough.
+			 */
+			gcd->active_context = gcd->active_context_from_event;
+		} else {
 
-		goto fail;
+			gcd->active_context = 0;
+			gcd->state = STATE_IDLE;
+
+			goto fail;
+		}
 	}
 
-	/* read ip configuration info */
-	snprintf(buf, sizeof(buf), "AT+CGCONTRDP=%u", gcd->active_context);
-	if (g_at_chat_send(gcd->chat, buf, cgcontrdp_prefix,
-				cgcontrdp_cb, gc, NULL))
+	if (ublox_read_ip_config(gc) > 0)
 		return;
 
 fail:
@@ -234,14 +253,18 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 
 	DBG("cid %u", ctx->cid);
 
-	gcd->active_context = ctx->cid;
 	gcd->cb = cb;
 	gcd->cb_data = data;
 	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
 
 	gcd->state = STATE_ENABLING;
 
-	len = snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\"", ctx->cid);
+	/* Try to use given cid. */
+	gcd->active_context = ctx->cid;
+	gcd->gprs_cid = ctx->cid;
+
+	len = snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\"",
+							gcd->active_context);
 
 	if (ctx->apn)
 		snprintf(buf + len, sizeof(buf) - len - 3, ",\"%s\"",
@@ -271,8 +294,54 @@ static void ublox_gprs_deactivate_primary(struct ofono_gprs_context *gc,
 	snprintf(buf, sizeof(buf), "AT+CGACT=0,%u", gcd->active_context);
 	g_at_chat_send(gcd->chat, buf, none_prefix, NULL, NULL, NULL);
 
+	gcd->active_context = 0;
+	gcd->gprs_cid = 0;
+
 	CALLBACK_WITH_SUCCESS(cb, data);
 }
+
+static void cgev_notify(GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	GAtResultIter iter;
+	const char *event;
+	int cid;
+	char tmp[5] = {0};
+
+	g_at_result_iter_init(&iter, result);
+
+	if (!g_at_result_iter_next(&iter, "+CGEV:"))
+		return;
+
+	if (!g_at_result_iter_next_unquoted_string(&iter, &event))
+		return;
+
+	if (g_str_has_prefix(event, "ME PDN ACT") == TRUE) {
+		/* This might be the default context needed for activation. */
+		sscanf(event, "%s %s %s %u", tmp, tmp, tmp, &cid);
+		gcd->active_context_from_event = cid;
+
+		DBG("cid=%d activated", cid);
+
+		return;
+	} else if (g_str_has_prefix(event, "NW PDN DEACT") == TRUE) {
+		sscanf(event, "%s %s %s %u", tmp, tmp, tmp, &cid);
+		DBG("cid=%d deactivated", cid);
+	} else
+		return;
+
+
+	/* Can happen if  non-default context is deactivated. Ignore. */
+	if ((unsigned int) cid != gcd->active_context)
+		return;
+
+	ofono_gprs_context_deactivated(gc, gcd->gprs_cid);
+	gcd->active_context = 0;
+	gcd->active_context_from_event = 0;
+	gcd->gprs_cid = 0;
+}
+
 
 static int ublox_gprs_context_probe(struct ofono_gprs_context *gc,
 					unsigned int vendor, void *data)
@@ -289,6 +358,8 @@ static int ublox_gprs_context_probe(struct ofono_gprs_context *gc,
 	gcd->chat = g_at_chat_clone(chat);
 
 	ofono_gprs_context_set_data(gc, gcd);
+
+	g_at_chat_register(chat, "+CGEV:", cgev_notify, FALSE, gc, NULL);
 
 	return 0;
 }
