@@ -56,6 +56,9 @@ struct gprs_context_data {
 	unsigned int active_context_from_event;
 	unsigned int gprs_cid;
 	char apn[OFONO_GPRS_MAX_APN_LENGTH + 1];
+	char username[OFONO_GPRS_MAX_USERNAME_LENGTH + 1];
+	char password[OFONO_GPRS_MAX_PASSWORD_LENGTH + 1];
+	enum ofono_gprs_auth_method auth_method;
 	enum state state;
 	ofono_gprs_context_cb_t cb;
 	void *cb_data;
@@ -239,43 +242,106 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
 }
 
-static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
-				const struct ofono_gprs_primary_context *ctx,
-				ofono_gprs_context_cb_t cb, void *data)
+static void ublox_activate_ctx(struct ofono_gprs_context *gc)
 {
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	char buf[OFONO_GPRS_MAX_APN_LENGTH + 128];
 	int len;
 
-	/* IPv6 support not implemented */
-	if (ctx->proto != OFONO_GPRS_PROTO_IP)
-		goto error;
-
-	DBG("cid %u", ctx->cid);
-
-	gcd->cb = cb;
-	gcd->cb_data = data;
-	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
-
-	gcd->state = STATE_ENABLING;
-
-	/* Try to use given cid. */
-	gcd->active_context = ctx->cid;
-	gcd->gprs_cid = ctx->cid;
-
 	len = snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\"",
-							gcd->active_context);
+				gcd->active_context);
 
-	if (ctx->apn)
+	if (gcd->apn)
 		snprintf(buf + len, sizeof(buf) - len - 3, ",\"%s\"",
-					ctx->apn);
+					gcd->apn);
 
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
 				cgdcont_cb, gc, NULL) > 0)
 		return;
 
+	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+}
+
+static void uauthreq_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		ofono_error("can't authenticate");
+		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		return;
+	}
+
+	ublox_activate_ctx(gc);
+}
+
+#define UBLOX_MAX_USER_LEN 50
+#define UBLOX_MAX_PASS_LEN 50
+
+static void ublox_authenticate(struct ofono_gprs_context *gc)
+{
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	char buf[UBLOX_MAX_USER_LEN + UBLOX_MAX_PASS_LEN + 32];
+	unsigned auth_method;
+
+	switch (gcd->auth_method) {
+	case OFONO_GPRS_AUTH_METHOD_PAP:
+		auth_method = 1;
+		break;
+	case OFONO_GPRS_AUTH_METHOD_CHAP:
+		auth_method = 2;
+		break;
+	default:
+		ofono_error("Unsupported auth type %u", gcd->auth_method);
+		goto error;
+	}
+
+	snprintf(buf, sizeof(buf), "AT+UAUTHREQ=%u,%u,\"%s\",\"%s\"",
+			gcd->active_context, auth_method,
+			gcd->username, gcd->password);
+
+	/* If this failed, we will see it during context activation. */
+	if (g_at_chat_send(gcd->chat, buf, none_prefix,
+				uauthreq_cb, gc, NULL) > 0)
+		return;
+
 error:
-	CALLBACK_WITH_FAILURE(cb, data);
+	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+}
+
+static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
+				const struct ofono_gprs_primary_context *ctx,
+				ofono_gprs_context_cb_t cb, void *data)
+{
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	/* IPv6 support not implemented */
+	if (ctx->proto != OFONO_GPRS_PROTO_IP) {
+		CALLBACK_WITH_FAILURE(cb, data);
+		return;
+	}
+
+	DBG("cid %u", ctx->cid);
+
+	gcd->cb = cb;
+	gcd->cb_data = data;
+	gcd->state = STATE_ENABLING;
+	gcd->auth_method  =  ctx->auth_method;
+	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
+
+	/* Try to use given cid. */
+	gcd->active_context = ctx->cid;
+	gcd->gprs_cid = ctx->cid;
+
+	if (strlen(ctx->username) && strlen(ctx->password)) {
+		memcpy(gcd->username, ctx->username, sizeof(ctx->username));
+		memcpy(gcd->password, ctx->password, sizeof(ctx->password));
+		ublox_authenticate(gc);
+	} else
+		ublox_activate_ctx(gc);
 }
 
 static void ublox_gprs_deactivate_primary(struct ofono_gprs_context *gc,
