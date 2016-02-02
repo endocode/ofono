@@ -115,6 +115,7 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	const char *laddrnetmask = NULL;
 	const char *gw = NULL;
 	const char *dns[2+1] = { NULL, NULL, NULL };
+	const char *apn = NULL;
 
 	struct ofono_modem *modem;
 	const char *interface;
@@ -131,7 +132,6 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	while (g_at_result_iter_next(&iter, "+CGCONTRDP:")) {
 		/* tmp vals for ignored fields */
 		int bearer_id;
-		const char *apn;
 
 		if (!g_at_result_iter_next_number(&iter, &cid))
 			break;
@@ -168,6 +168,12 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 	if (dns[0])
 		ofono_gprs_context_set_ipv4_dns_servers(gc, dns);
+
+	if (strcmp(apn, gcd->apn)) {
+		/* We got note of a different APN on this context. */
+		ofono_gprs_context_set_apn(gc, apn);
+		strcpy(gcd->apn, apn);
+	}
 
 	gcd->state = STATE_ACTIVE;
 
