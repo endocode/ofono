@@ -103,6 +103,7 @@ struct ipv6_settings {
 };
 
 struct context_settings {
+	char *apn;
 	char *interface;
 	struct ipv4_settings *ipv4;
 	struct ipv6_settings *ipv6;
@@ -867,6 +868,9 @@ static DBusMessage *pri_get_properties(DBusConnection *conn,
 	return reply;
 }
 
+static DBusMessage *pri_set_apn(struct pri_context *ctx, DBusConnection *conn,
+				DBusMessage *msg, const char *apn);
+
 static void pri_activate_callback(const struct ofono_error *error, void *data)
 {
 	struct pri_context *ctx = data;
@@ -885,6 +889,11 @@ static void pri_activate_callback(const struct ofono_error *error, void *data)
 		release_context(ctx);
 		return;
 	}
+
+
+	if (gc->settings->apn && strcmp(gc->settings->apn, ctx->context.apn))
+		/* APN changed  during context activation. */
+		pri_set_apn(ctx, conn, NULL, gc->settings->apn);
 
 	ctx->active = TRUE;
 	__ofono_dbus_pending_reply(&ctx->pending,
@@ -955,13 +964,13 @@ static DBusMessage *pri_set_apn(struct pri_context *ctx, DBusConnection *conn,
 		storage_sync(ctx->gprs->imsi, SETTINGS_STORE, settings);
 	}
 
-	g_dbus_send_reply(conn, msg, DBUS_TYPE_INVALID);
+	if (msg)
+		g_dbus_send_reply(conn, msg, DBUS_TYPE_INVALID);
 
 	ofono_dbus_signal_property_changed(conn, ctx->path,
 					OFONO_CONNECTION_CONTEXT_INTERFACE,
 					"AccessPointName",
 					DBUS_TYPE_STRING, &apn);
-
 	return NULL;
 }
 
@@ -2686,6 +2695,15 @@ void ofono_gprs_context_set_interface(struct ofono_gprs_context *gc,
 
 	g_free(settings->interface);
 	settings->interface = g_strdup(interface);
+}
+
+void ofono_gprs_context_set_apn(struct ofono_gprs_context *gc,
+					const char *apn)
+{
+	struct context_settings *settings = gc->settings;
+
+	g_free(settings->apn);
+	settings->apn = g_strdup(apn);
 }
 
 void ofono_gprs_context_set_ipv4_address(struct ofono_gprs_context *gc,
