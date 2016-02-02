@@ -107,6 +107,9 @@ enum ofono_gprs_context_type ofono_gprs_context_get_type(
 void ofono_gprs_context_set_interface(struct ofono_gprs_context *gc,
 					const char *interface);
 
+void ofono_gprs_context_set_apn(struct ofono_gprs_context *gc,
+					const char *interface);
+
 void ofono_gprs_context_set_ipv4_address(struct ofono_gprs_context *gc,
 						const char *address,
 						ofono_bool_t static_ip);
