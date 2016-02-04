@@ -51,6 +51,9 @@ if __name__ == "__main__":
 	if 'Emergency' in properties:
 		print("Emergency: %s" % (properties['Emergency']))
 
+	if 'NetworkMode' in properties:
+		print("NetworkMode: %s" % (properties['NetworkMode']))
+
 	if 'Features' in properties:
 		print("Features:")
 		for feature in properties["Features"]:
