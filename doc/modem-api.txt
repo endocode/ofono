@@ -90,6 +90,12 @@ Properties	boolean Powered [readwrite]
 			"hfp") this corresponds to the Bluetooth Device
 			Address of the remote device.
 
+		string NetworkMode [readwrite]
+
+			String reprensenting the networking mode of U-Blox TOBY L2.
+			It must be either "routed" or "bridged".  Default is
+			"bridged".
+
 		array{string} Features [readonly]
 
 			List of currently enabled features. It uses simple

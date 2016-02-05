@@ -772,6 +772,39 @@ ofono_bool_t ofono_modem_get_online(struct ofono_modem *modem)
 	return modem->online;
 }
 
+static DBusMessage *set_net_mode(struct ofono_modem *modem,
+				 DBusMessage *msg,
+				 DBusMessageIter *var)
+{
+	const struct ofono_modem_driver *driver = modem->driver;
+	DBusConnection *conn = ofono_dbus_get_connection();
+	const char *mode;
+
+	if (!driver->set_net_mode)
+		return __ofono_error_not_supported(msg);
+
+	if (dbus_message_iter_get_arg_type(var) != DBUS_TYPE_STRING)
+		return __ofono_error_invalid_args(msg);
+
+	if (modem->modem_state == MODEM_STATE_ONLINE ||
+			modem->modem_state == MODEM_STATE_POWER_OFF)
+		return __ofono_error_failed(msg);
+
+	dbus_message_iter_get_basic(var, &mode);
+
+	if (driver->set_net_mode(modem, mode) < 0)
+		return __ofono_error_invalid_args(msg);
+
+	g_dbus_send_reply(conn, msg, DBUS_TYPE_INVALID);
+
+	ofono_dbus_signal_property_changed(conn, modem->path,
+					OFONO_MODEM_INTERFACE,
+					"NetworkMode", DBUS_TYPE_STRING,
+					&mode);
+
+	return NULL;
+}
+
 void __ofono_modem_append_properties(struct ofono_modem *modem,
 						DBusMessageIter *dict)
 {
@@ -782,6 +815,7 @@ void __ofono_modem_append_properties(struct ofono_modem *modem,
 	struct ofono_devinfo *info;
 	dbus_bool_t emergency = ofono_modem_get_emergency_mode(modem);
 	const char *strtype;
+	const char *netmode;
 
 	ofono_dbus_dict_append(dict, "Online", DBUS_TYPE_BOOLEAN,
 				&modem->online);
@@ -837,6 +871,11 @@ void __ofono_modem_append_properties(struct ofono_modem *modem,
 
 	strtype = modem_type_to_string(modem->driver->modem_type);
 	ofono_dbus_dict_append(dict, "Type", DBUS_TYPE_STRING, &strtype);
+
+	netmode = ofono_modem_get_string(modem, "NetworkMode");
+	if (netmode)
+		ofono_dbus_dict_append(dict, "NetworkMode",
+						DBUS_TYPE_STRING, &netmode);
 }
 
 static DBusMessage *modem_get_properties(DBusConnection *conn,
@@ -1130,6 +1169,9 @@ static DBusMessage *modem_set_property(DBusConnection *conn,
 
 	if (g_str_equal(name, "Lockdown"))
 		return set_property_lockdown(modem, msg, &var);
+
+	if (g_str_equal(name, "NetworkMode"))
+		return set_net_mode(modem, msg, &var);
 
 	return __ofono_error_invalid_args(msg);
 }

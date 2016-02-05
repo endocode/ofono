@@ -25,6 +25,8 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #include <glib.h>
 #include <gatchat.h>
@@ -42,6 +44,7 @@
 #include <drivers/atmodem/atutil.h>
 #include <drivers/atmodem/vendor.h>
 
+static const char *ubmconf_prefix[] = { "+UBMCONF:", NULL };
 static const char *none_prefix[] = { NULL };
 
 enum supported_models {
@@ -52,11 +55,17 @@ enum supported_models {
 	TOBYL2_HIGH_THROUGHPUT_MODE 	= 1146,
 };
 
+enum ublox_net_mode {
+	UBLOX_TOBYL2_NET_MODE_ROUTER = 1,
+	UBLOX_TOBYL2_NET_MODE_BRIDGE = 2,
+};
+
 struct ublox_data {
 	GAtChat *modem;
 	GAtChat *aux;
 	int model_id;
 	enum ofono_vendor vendor_family;
+	enum ublox_net_mode net_mode;
 };
 
 static void ublox_debug(const char *str, void *user_data)
@@ -91,6 +100,39 @@ static void ublox_remove(struct ofono_modem *modem)
 	g_at_chat_unref(data->aux);
 	g_at_chat_unref(data->modem);
 	g_free(data);
+}
+
+static void read_ubmconf_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_modem *modem = (struct ofono_modem *) user_data;
+	struct ublox_data *data = ofono_modem_get_data(modem);
+	int mode = 0;
+	GAtResultIter iter;
+
+	g_at_result_iter_init(&iter, result);
+
+	while (!g_at_result_iter_next(&iter, "+UBMCONF:"))
+		;	/* skip every other line that is not UBMCONF */
+
+	g_at_result_iter_next_number(&iter, &mode);
+
+	data->net_mode = mode;
+	DBG("mode=%d", mode);
+	if (mode == 1)
+		ofono_modem_set_string(modem, "NetworkMode", "routed");
+	else if (mode == 2)
+		ofono_modem_set_string(modem, "NetworkMode", "bridged");
+}
+
+static void read_net_mode(struct ofono_modem *modem)
+{
+	struct ublox_data *data = ofono_modem_get_data(modem);
+
+	if (!data->aux)
+		return;
+
+	g_at_chat_send(data->aux, "AT+UBMCONF?",
+			ubmconf_prefix, read_ubmconf_cb, modem, NULL);
 }
 
 static GAtChat *open_device(struct ofono_modem *modem,
@@ -142,10 +184,16 @@ static void cfun_enable(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
-	if (data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE)
+	if (data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE) {
+		char at_chat_cmd[64];
+
+		snprintf(at_chat_cmd, sizeof(at_chat_cmd), "AT+UBMCONF=%u",
+				data->net_mode);
+
 		/* use bridged mode until routed mode support is added */
-		g_at_chat_send(data->aux, "AT+UBMCONF=2", none_prefix,
-						NULL, NULL, NULL);
+		g_at_chat_send(data->aux, at_chat_cmd, none_prefix,
+				NULL, NULL, NULL);
+	}
 
 	ofono_modem_set_powered(modem, TRUE);
 }
@@ -206,6 +254,11 @@ static int ublox_enable(struct ofono_modem *modem)
 
 	g_at_chat_send(data->aux, "ATE0 +CMEE=1", none_prefix,
 					NULL, NULL, NULL);
+
+	/* The current network mode must be read once, before getting into
+	 * cfun_enable(). Otherwise cfun_enable() could again set an invalid
+	 * state. */
+	read_net_mode(modem);
 
 	g_at_chat_send(data->aux, "AT+CFUN=4", none_prefix,
 					cfun_enable, modem, NULL);
@@ -324,6 +377,50 @@ static void ublox_post_online(struct ofono_modem *modem)
 	ofono_netreg_create(modem, data->vendor_family, "atmodem", data->aux);
 }
 
+static void set_net_mode_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_modem *modem = (struct ofono_modem *) user_data;
+	struct ublox_data *data = ofono_modem_get_data(modem);
+	char at_chat_cmd[64];
+
+	/* reboot */
+	snprintf(at_chat_cmd, sizeof(at_chat_cmd), "AT+CFUN=15");
+	g_at_chat_send(data->aux, at_chat_cmd, none_prefix, NULL, NULL, NULL);
+}
+
+static int ublox_set_net_mode(struct ofono_modem *modem,
+				const char *mode)
+{
+	struct ublox_data *data = ofono_modem_get_data(modem);
+	char cmd[64];
+	int imode;
+
+	if (strcmp(mode, "routed") == 0)
+		imode = 1;
+	else if (strcmp(mode, "bridged") == 0)
+		imode = 2;
+	else
+		return -EINVAL;
+
+	DBG("mode: %s", mode);
+
+	/* It's not necessary to reboot it when the new mode is the same as
+	 * the previous one. So skip it. */
+	if (data->net_mode == (enum ublox_net_mode) imode)
+		return 0;
+
+	data->net_mode = imode;
+
+	snprintf(cmd, sizeof(cmd), "AT+UBMCONF=%d", imode);
+	if (data->aux)
+		g_at_chat_send(data->aux, cmd, none_prefix, set_net_mode_cb,
+				modem, NULL);
+
+	ofono_modem_set_string(modem, "NetworkMode", mode);
+
+	return 0;
+}
+
 static struct ofono_modem_driver ublox_driver = {
 	.name		= "ublox",
 	.probe		= ublox_probe,
@@ -334,6 +431,7 @@ static struct ofono_modem_driver ublox_driver = {
 	.pre_sim	= ublox_pre_sim,
 	.post_sim	= ublox_post_sim,
 	.post_online	= ublox_post_online,
+	.set_net_mode	= ublox_set_net_mode,
 };
 
 static int ublox_init(void)

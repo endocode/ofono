@@ -72,6 +72,9 @@ struct ofono_modem_driver {
 
 	/* Populate the atoms available online */
 	void (*post_online)(struct ofono_modem *modem);
+
+	/* Set modem networking mode (bridged, routed).  */
+	int (*set_net_mode)(struct ofono_modem *modem, const char* mode);
 };
 
 void ofono_modem_add_interface(struct ofono_modem *modem,
