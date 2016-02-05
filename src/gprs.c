@@ -384,6 +384,9 @@ static void context_settings_free(struct context_settings *settings)
 		settings->ipv6 = NULL;
 	}
 
+	g_free(settings->apn);
+	settings->apn = NULL;
+
 	g_free(settings->interface);
 	settings->interface = NULL;
 }
