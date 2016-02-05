@@ -27,6 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <errno.h>
 
 #include <glib.h>
@@ -40,29 +41,57 @@
 
 #include "ubloxmodem.h"
 
-enum state {
-	STATE_IDLE,
-	STATE_ENABLING,
-	STATE_DISABLING,
-	STATE_ACTIVE,
-};
-
 static const char *none_prefix[] = { NULL };
 static const char *cgcontrdp_prefix[] = { "+CGCONTRDP:", NULL };
 
 struct gprs_context_data {
 	GAtChat *chat;
 	unsigned int active_context;
-	unsigned int active_context_from_event;
 	unsigned int gprs_cid;
 	char apn[OFONO_GPRS_MAX_APN_LENGTH + 1];
 	char username[OFONO_GPRS_MAX_USERNAME_LENGTH + 1];
 	char password[OFONO_GPRS_MAX_PASSWORD_LENGTH + 1];
 	enum ofono_gprs_auth_method auth_method;
-	enum state state;
 	ofono_gprs_context_cb_t cb;
 	void *cb_data;
 };
+
+#define UBLOX_MAX_DEF_CONTEXT 8
+
+struct ublox_data {
+	/* Stores default PDP context/default EPS bearer. */
+	unsigned int default_context_id;
+	struct gprs_context_data contexts[UBLOX_MAX_DEF_CONTEXT];
+	unsigned int ncontexts;
+
+	/* Save used cids on the modem. */
+	bool active[UBLOX_MAX_DEF_CONTEXT];
+	unsigned int nactive;
+};
+
+static struct ublox_data ublox_data;
+
+static int get_context_id()
+{
+	int i;
+
+	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
+		if (!ublox_data.active[i]) {
+			ublox_data.active[i] = true;
+			return i+1;
+		}
+	}
+
+	return 0;
+}
+
+static void release_context_id(unsigned cid)
+{
+	if (!cid || cid > UBLOX_MAX_DEF_CONTEXT)
+		return;
+
+	ublox_data.active[cid-1] = false;
+}
 
 /*
  * CGCONTRDP returns addr + netmask in the same string in the form
@@ -169,13 +198,15 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	if (dns[0])
 		ofono_gprs_context_set_ipv4_dns_servers(gc, dns);
 
-	if (strcmp(apn, gcd->apn)) {
-		/* We got note of a different APN on this context. */
+	if (gcd->active_context == ublox_data.default_context_id) {
+		/*
+		 * Only for automatic default context: the APN set by the user
+		 * might not be the correct one because the default context was
+		 * used instead.
+		 */
 		ofono_gprs_context_set_apn(gc, apn);
 		strcpy(gcd->apn, apn);
 	}
-
-	gcd->state = STATE_ACTIVE;
 
 	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
 }
@@ -192,27 +223,28 @@ static int ublox_read_ip_config(struct ofono_gprs_context *gc)
 
 }
 
-static void cgact_cb(gboolean ok, GAtResult *result, gpointer user_data)
+static void cgact_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 
 	DBG("ok %d", ok);
 	if (!ok) {
-		if (gcd->active_context_from_event) {
+		if (ublox_data.default_context_id &&
+			!ublox_data.nactive) {
 			/*
 			 * Proceed with an already active context known from a
 			 * CGEV ME PDN ACT. That one should be good enough.
 			 */
-			gcd->active_context = gcd->active_context_from_event;
+			gcd->active_context = ublox_data.default_context_id;
 		} else {
 
 			gcd->active_context = 0;
-			gcd->state = STATE_IDLE;
-
 			goto fail;
 		}
 	}
+
+	ublox_data.nactive++;
 
 	if (ublox_read_ip_config(gc) > 0)
 		return;
@@ -233,7 +265,6 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		struct ofono_error error;
 
 		gcd->active_context = 0;
-		gcd->state = STATE_IDLE;
 
 		decode_at_error(&error, g_at_result_final_response(result));
 		gcd->cb(&error, gcd->cb_data);
@@ -242,7 +273,7 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 	snprintf(buf, sizeof(buf), "AT+CGACT=1,%u", gcd->active_context);
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
-				cgact_cb, gc, NULL))
+				cgact_enable_cb, gc, NULL))
 		return;
 
 	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
@@ -332,15 +363,18 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 
 	DBG("cid %u", ctx->cid);
 
+	gcd->active_context = get_context_id();
+	if (!gcd->active_context) {
+		ofono_error("can't activate more contexts");
+		CALLBACK_WITH_FAILURE(cb, data);
+		return;
+	}
+
 	gcd->cb = cb;
 	gcd->cb_data = data;
-	gcd->state = STATE_ENABLING;
-	gcd->auth_method  =  ctx->auth_method;
-	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
-
-	/* Try to use given cid. */
-	gcd->active_context = ctx->cid;
+	gcd->auth_method = ctx->auth_method;
 	gcd->gprs_cid = ctx->cid;
+	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
 
 	if (strlen(ctx->username) && strlen(ctx->password)) {
 		memcpy(gcd->username, ctx->username, sizeof(ctx->username));
@@ -348,6 +382,29 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 		ublox_authenticate(gc);
 	} else
 		ublox_activate_ctx(gc);
+}
+
+static void cgact_disable_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	DBG("ok %d", ok);
+	if (!ok) {
+		if (gcd->active_context && ublox_data.default_context_id)
+			ofono_warn("Disabling the default context is not "
+					"allowed on LTE.");
+		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		return;
+	}
+
+	release_context_id(gcd->active_context);
+	gcd->active_context = 0;
+	gcd->gprs_cid = 0;
+
+	ublox_data.nactive--;
+
+	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
 }
 
 static void ublox_gprs_deactivate_primary(struct ofono_gprs_context *gc,
@@ -359,17 +416,12 @@ static void ublox_gprs_deactivate_primary(struct ofono_gprs_context *gc,
 
 	DBG("cid %u", cid);
 
-	gcd->state = STATE_DISABLING;
 	gcd->cb = cb;
 	gcd->cb_data = data;
 
 	snprintf(buf, sizeof(buf), "AT+CGACT=0,%u", gcd->active_context);
-	g_at_chat_send(gcd->chat, buf, none_prefix, NULL, NULL, NULL);
-
-	gcd->active_context = 0;
-	gcd->gprs_cid = 0;
-
-	CALLBACK_WITH_SUCCESS(cb, data);
+	g_at_chat_send(gcd->chat, buf, none_prefix,
+			cgact_disable_cb, gc, NULL);
 }
 
 static void cgev_notify(GAtResult *result, gpointer user_data)
@@ -378,7 +430,7 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	GAtResultIter iter;
 	const char *event;
-	int cid;
+	unsigned int cid;
 	char tmp[5] = {0};
 
 	g_at_result_iter_init(&iter, result);
@@ -390,10 +442,15 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 		return;
 
 	if (g_str_has_prefix(event, "ME PDN ACT") == TRUE) {
-		/* This might be the default context needed for activation. */
+		/*
+		 * We only care about the first even coming in before any user
+		 * activations happen. This is for detecting the default
+		 * context in LTE networks which doesn't require user
+		 * activation.
+		 */
 		sscanf(event, "%s %s %s %u", tmp, tmp, tmp, &cid);
-		gcd->active_context_from_event = cid;
-
+		if (!ublox_data.default_context_id && !ublox_data.nactive)
+			ublox_data.default_context_id = cid;
 		DBG("cid=%d activated", cid);
 
 		return;
@@ -403,14 +460,15 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 	} else
 		return;
 
-
-	/* Can happen if  non-default context is deactivated. Ignore. */
-	if ((unsigned int) cid != gcd->active_context)
+	/* Can happen if non-default context is deactivated. Ignore. */
+	if (gcd->active_context != cid)
 		return;
+
+	if (ublox_data.default_context_id == cid)
+		ublox_data.default_context_id = 0;
 
 	ofono_gprs_context_deactivated(gc, gcd->gprs_cid);
 	gcd->active_context = 0;
-	gcd->active_context_from_event = 0;
 	gcd->gprs_cid = 0;
 }
 
@@ -423,14 +481,20 @@ static int ublox_gprs_context_probe(struct ofono_gprs_context *gc,
 
 	DBG("");
 
-	gcd = g_try_new0(struct gprs_context_data, 1);
-	if (gcd == NULL)
-		return -ENOMEM;
+	if (ublox_data.ncontexts >= UBLOX_MAX_DEF_CONTEXT) {
+		ofono_error("modem supports defining max 8 contexts");
+		return -E2BIG;
+	}
+
+	gcd = &ublox_data.contexts[ublox_data.ncontexts];
+	memset(gcd, 0, sizeof(*gcd));
+	ublox_data.ncontexts++;
 
 	gcd->chat = g_at_chat_clone(chat);
 
 	ofono_gprs_context_set_data(gc, gcd);
 
+	/* Not sure if ok to register all contexts with the callback. */
 	g_at_chat_register(chat, "+CGEV:", cgev_notify, FALSE, gc, NULL);
 
 	return 0;
@@ -445,7 +509,9 @@ static void ublox_gprs_context_remove(struct ofono_gprs_context *gc)
 	ofono_gprs_context_set_data(gc, NULL);
 
 	g_at_chat_unref(gcd->chat);
-	g_free(gcd);
+
+	memset(gcd, 0, sizeof(*gcd));
+	ublox_data.ncontexts--;
 }
 
 static struct ofono_gprs_context_driver driver = {

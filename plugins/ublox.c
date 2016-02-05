@@ -295,23 +295,26 @@ static void ublox_post_sim(struct ofono_modem *modem)
 	struct ublox_data *data = ofono_modem_get_data(modem);
 	struct ofono_gprs *gprs;
 	struct ofono_gprs_context *gc;
+	GAtChat *chat = data->modem ? data->modem : data->aux;
+	const char *driver = data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE ?
+							"ubloxmodem":"atmodem";
+	/* Toby L2: Create same number of contexts as supported PDP contexts. */
+	int ncontexts = data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE ? 8:1;
 
 	DBG("%p", modem);
 
 	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
 					data->aux);
-	if (data->model_id == TOBYL2_HIGH_THROUGHPUT_MODE)
-		gc = ofono_gprs_context_create(modem, data->vendor_family,
-						"ubloxmodem",
-						data->modem ? data->modem : data->aux);
 
-	else
+	while (ncontexts) {
 		gc = ofono_gprs_context_create(modem, data->vendor_family,
-						"atmodem",
-						data->modem ? data->modem : data->aux);
+						driver, chat);
 
-	if (gprs && gc)
-		ofono_gprs_add_context(gprs, gc);
+		if (gprs && gc)
+			ofono_gprs_add_context(gprs, gc);
+
+		--ncontexts;
+	}
 }
 
 static void ublox_post_online(struct ofono_modem *modem)
