@@ -42,12 +42,14 @@
 #include "ubloxmodem.h"
 
 static const char *none_prefix[] = { NULL };
+static const char *cgdscont_prefix[] = { "+CGDSCONT:", NULL };
 static const char *cgcontrdp_prefix[] = { "+CGCONTRDP:", NULL };
 static const char *uipconf_prefix[] = { "+UIPCONF:", NULL };
 
 struct gprs_context_data {
 	GAtChat *chat;
 	unsigned int active_context;
+	unsigned int parent_context;
 	unsigned int gprs_cid;
 	char apn[OFONO_GPRS_MAX_APN_LENGTH + 1];
 	char username[OFONO_GPRS_MAX_USERNAME_LENGTH + 1];
@@ -112,6 +114,7 @@ static void release_context_id(unsigned cid)
 			ublox_data.nactive--;
 
 			ublox_data.contexts[i].active_context = 0;
+			ublox_data.contexts[i].parent_context = 0;
 			ublox_data.contexts[i].gprs_cid = 0;
 
 			return;
@@ -141,6 +144,27 @@ static void release_tfts_for_ctx(unsigned int ctx)
 		if (ublox_data.tft2ctx[i] == (unsigned short) ctx)
 			ublox_data.tft2ctx[i] = 0;
 	}
+}
+
+/*
+ * If any APN string matches with a substring of any of entries in
+ * ublox_data.contexts[], then returns an active context ID of the entry.
+ */
+static unsigned int find_context_for_apn(const char *apn)
+{
+	int i;
+
+	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
+		struct gprs_context_data *gcd = &ublox_data.contexts[i];
+
+		if (!gcd->active_context || !gcd->apn)
+			continue;
+
+		if (strncasecmp(apn, gcd->apn, strlen(apn)) == 0)
+			return gcd->active_context;
+	}
+
+	return 0;
 }
 
 /*
@@ -501,7 +525,7 @@ static void ublox_set_tfts(struct gprs_context_data *gcd, GSList *tfts)
 	}
 }
 
-static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
+static void cgdcont_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
@@ -526,7 +550,47 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
 }
 
-static void ublox_activate_ctx(struct ofono_gprs_context *gc)
+/*
+ * after setting a context pairs, enable the secondary context.
+ */
+static void cgdscont_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	char buf[64];
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		return;
+	}
+
+	snprintf(buf, sizeof(buf), "AT+CGACT=1,%u", gcd->active_context);
+	if (g_at_chat_send(gcd->chat, buf, none_prefix,
+				cgact_enable_cb, gc, NULL) > 0)
+		return;
+
+	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+	return;
+}
+
+static void ublox_activate_secondary_ctx(struct ofono_gprs_context *gc)
+{
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	char buf[64];
+
+	snprintf(buf, sizeof(buf), "AT+CGDSCONT=%u,%u", gcd->active_context,
+			gcd->parent_context);
+	if (g_at_chat_send(gcd->chat, buf, cgdscont_prefix,
+				cgdscont_set_cb, gc, NULL) > 0)
+		return;
+
+	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+	return;
+}
+
+static void ublox_activate_primary_ctx(struct ofono_gprs_context *gc)
 {
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	char buf[OFONO_GPRS_MAX_APN_LENGTH + 128];
@@ -540,10 +604,24 @@ static void ublox_activate_ctx(struct ofono_gprs_context *gc)
 					gcd->apn);
 
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
-				cgdcont_cb, gc, NULL) > 0)
+				cgdcont_set_cb, gc, NULL) > 0)
 		return;
 
 	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+}
+
+static void ublox_activate_ctx(struct ofono_gprs_context *gc)
+{
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	/* If parent CID is non-zero, then it means the current context is
+	 * a secondary context */
+	if (gcd->parent_context)
+		ublox_activate_secondary_ctx(gc);
+	else
+		ublox_activate_primary_ctx(gc);
+
+	return;
 }
 
 static void uauthreq_cb(gboolean ok, GAtResult *result, gpointer user_data)
@@ -610,7 +688,15 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 		return;
 	}
 
+	if (gcd->parent_context) {
+		CALLBACK_WITH_FAILURE(cb, data);
+		return;
+	}
+
 	DBG("cid %u", ctx->cid);
+
+	/* For primary contexts it will be 0. */
+	gcd->parent_context = find_context_for_apn(ctx->apn);
 
 	gcd->active_context = get_context_id();
 	if (!gcd->active_context) {
@@ -651,7 +737,6 @@ static void cgact_disable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	}
 
 	ublox_set_tfts(gcd, NULL);
-
 	release_context_id(gcd->active_context);
 
 	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
