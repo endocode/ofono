@@ -68,6 +68,9 @@ struct ublox_data {
 	/* Save used cids on the modem. */
 	bool active[UBLOX_MAX_DEF_CONTEXT];
 	unsigned int nactive;
+
+	/* Save used tft ids. */
+	short tft2ctx[UBLOX_MAX_DEF_CONTEXT];
 };
 
 static struct ublox_data ublox_data;
@@ -113,6 +116,30 @@ static void release_context_id(unsigned cid)
 
 			return;
 		}
+	}
+}
+
+static int get_unused_tft_id(unsigned int ctx)
+{
+	int i;
+
+	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
+		if (!ublox_data.tft2ctx[i]) {
+			ublox_data.tft2ctx[i] = ctx;
+			return i+1;
+		}
+	}
+
+	return 0;
+}
+
+static void release_tfts_for_ctx(unsigned int ctx)
+{
+	int i;
+
+	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
+		if (ublox_data.tft2ctx[i] == (unsigned short) ctx)
+			ublox_data.tft2ctx[i] = 0;
 	}
 }
 
@@ -435,6 +462,45 @@ static void cgact_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	ublox_post_activation(gc);
 }
 
+static void ublox_set_tfts(struct gprs_context_data *gcd, GSList *tfts)
+{
+	GSList *l;
+	int pfi;
+
+	if (!tfts) {
+		/* empty list clears the TFTs for this cid */
+		char buf[16] = {0};
+		sprintf(buf, "AT+CGTFT=%u", gcd->active_context);
+		g_at_chat_send(gcd->chat, buf, NULL, NULL, NULL, NULL);
+
+		release_tfts_for_ctx(gcd->active_context);
+
+		return;
+	}
+
+	for (l = tfts, pfi = 1; l; l = l->next, pfi++) {
+		struct traffic_flow_template *tft = l->data;
+		char buf[1024] = {0};
+
+		unsigned cid = gcd->active_context;
+		unsigned tft_id = get_unused_tft_id(gcd->active_context);
+
+		snprintf(buf, 1024, "AT+CGTFT=%u,%u,%u,\"%s.%s\",%u,"
+					"\"%u.%u\",\"%u.%u\",%u,\"%u.%u\",0,%u",
+					cid, tft_id,
+					tft->priority,
+					tft->src_ip, tft->netmask,
+					tft->proto_num,
+					tft->src_port_start, tft->src_port_end,
+					tft->dst_port_start, tft->dst_port_end,
+					tft->ipsec_spi,
+					tft->tos, tft->tos_mask,
+					tft->direction);
+
+		g_at_chat_send(gcd->chat, buf, NULL, NULL, NULL, NULL);
+	}
+}
+
 static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
@@ -449,6 +515,8 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 		return;
 	}
+
+	ublox_set_tfts(gcd, ofono_gprs_context_get_tfts(gc));
 
 	snprintf(buf, sizeof(buf), "AT+CGACT=1,%u", gcd->active_context);
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
@@ -581,6 +649,8 @@ static void cgact_disable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
 		return;
 	}
+
+	ublox_set_tfts(gcd, NULL);
 
 	release_context_id(gcd->active_context);
 

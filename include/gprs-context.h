@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-#include <ofono/types.h>
+#include <stdint.h>
 
 struct ofono_gprs_context;
 
@@ -61,6 +61,21 @@ struct ofono_gprs_primary_context {
 	char password[OFONO_GPRS_MAX_PASSWORD_LENGTH + 1];
 	enum ofono_gprs_proto proto;
 	enum ofono_gprs_auth_method auth_method;
+};
+
+struct traffic_flow_template {
+	unsigned int priority;
+	char *src_ip;
+	char *netmask;
+	unsigned int proto_num;
+	unsigned int src_port_start;
+	unsigned int src_port_end;
+	unsigned int dst_port_start;
+	unsigned int dst_port_end;
+	unsigned int ipsec_spi;
+	unsigned int tos;
+	unsigned int tos_mask;
+	unsigned int direction;
 };
 
 typedef void (*ofono_gprs_context_cb_t)(const struct ofono_error *error,
@@ -128,6 +143,12 @@ void ofono_gprs_context_set_ipv6_gateway(struct ofono_gprs_context *gc,
 						const char *gateway);
 void ofono_gprs_context_set_ipv6_dns_servers(struct ofono_gprs_context *gc,
 						const char **dns);
+
+struct _GSList;
+typedef struct _GSList GSList;
+
+GSList *ofono_gprs_context_get_tfts(struct ofono_gprs_context *gc);
+
 #ifdef __cplusplus
 }
 #endif

@@ -34,6 +34,7 @@
 #include <net/route.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <stdbool.h>
 
 #include <glib.h>
 #include <gdbus.h>
@@ -116,6 +117,7 @@ struct ofono_gprs_context {
 	const struct ofono_gprs_context_driver *driver;
 	void *driver_data;
 	struct context_settings *settings;
+	GSList *tfts;
 	struct ofono_atom *atom;
 };
 
@@ -130,6 +132,7 @@ struct pri_context {
 	char *key;
 	char *proxy_host;
 	uint16_t proxy_port;
+	GSList *tfts;
 	DBusMessage *pending;
 	struct ofono_gprs_primary_context context;
 	struct ofono_gprs_context *context_driver;
@@ -319,6 +322,7 @@ static gboolean assign_context(struct pri_context *ctx)
 			continue;
 
 		ctx->context_driver = gc;
+		ctx->context_driver->tfts = ctx->tfts;
 		ctx->context_driver->inuse = TRUE;
 
 		if (ctx->context.proto == OFONO_GPRS_PROTO_IPV4V6 ||
@@ -343,6 +347,7 @@ static void release_context(struct pri_context *ctx)
 	gprs_cid_release(ctx->gprs, ctx->context.cid);
 	ctx->context.cid = 0;
 	ctx->context_driver->inuse = FALSE;
+	ctx->context_driver->tfts = NULL;
 	ctx->context_driver = NULL;
 	ctx->active = FALSE;
 }
@@ -360,6 +365,25 @@ static struct pri_context *gprs_context_by_path(struct ofono_gprs *gprs,
 	}
 
 	return NULL;
+}
+
+static void traffic_flow_template_free(gpointer data)
+{
+	struct traffic_flow_template *tft = data;
+
+	if (!tft)
+		return;
+
+	g_free(tft->src_ip);
+	g_free(tft->netmask);
+
+	g_free(tft);
+}
+
+static void traffic_flow_templates_free(struct pri_context *ctx)
+{
+	g_slist_free_full(ctx->tfts, traffic_flow_template_free);
+	ctx->tfts = NULL;
 }
 
 static void context_settings_free(struct context_settings *settings)
@@ -520,6 +544,52 @@ done:
 	dbus_message_iter_close_container(iter, &variant);
 }
 
+static void append_tft(struct traffic_flow_template *tft, DBusMessageIter *iter)
+{
+	DBusMessageIter array;
+	const char *typesig = DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+				DBUS_TYPE_STRING_AS_STRING
+				DBUS_TYPE_VARIANT_AS_STRING
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+						typesig, &array);
+	if (!tft)
+		goto done;
+
+	if (tft->src_ip)
+		ofono_dbus_dict_append(&array, "SourceAddress",
+					DBUS_TYPE_STRING, &tft->src_ip);
+
+	if (tft->netmask)
+		ofono_dbus_dict_append(&array, "Netmask",
+					DBUS_TYPE_STRING, &tft->netmask);
+
+	ofono_dbus_dict_append(&array, "Priority",
+				DBUS_TYPE_BYTE, &tft->priority);
+	ofono_dbus_dict_append(&array, "ProtocolNumber",
+				DBUS_TYPE_UINT16, &tft->proto_num);
+	ofono_dbus_dict_append(&array, "SourcePortStart",
+				DBUS_TYPE_UINT16, &tft->src_port_start);
+	ofono_dbus_dict_append(&array, "SourcePortEnd",
+				DBUS_TYPE_UINT16, &tft->src_port_end);
+	ofono_dbus_dict_append(&array, "DestinationPortStart",
+				DBUS_TYPE_UINT16, &tft->dst_port_start);
+	ofono_dbus_dict_append(&array, "DestinationPortEnd",
+				DBUS_TYPE_UINT16, &tft->dst_port_end);
+	ofono_dbus_dict_append(&array, "IPSecSecurityParameterIndex",
+				DBUS_TYPE_UINT16, &tft->ipsec_spi);
+	ofono_dbus_dict_append(&array, "TypeOfService",
+				DBUS_TYPE_UINT16, &tft->tos);
+	ofono_dbus_dict_append(&array, "TypeOfServiceMask",
+				DBUS_TYPE_UINT16, &tft->tos_mask);
+	ofono_dbus_dict_append(&array, "Direction",
+				DBUS_TYPE_BYTE, &tft->direction);
+
+done:
+	dbus_message_iter_close_container(iter, &array);
+}
+
 static void context_settings_append_ipv6_dict(struct context_settings *settings,
 						DBusMessageIter *dict)
 {
@@ -534,6 +604,45 @@ static void context_settings_append_ipv6_dict(struct context_settings *settings,
 	context_settings_append_ipv6(settings, &entry);
 
 	dbus_message_iter_close_container(dict, &entry);
+}
+
+static void append_tft_dicts(GSList *tfts, DBusMessageIter *dict)
+{
+	DBusMessageIter variant, array, dentry;
+	const char *key = "TrafficFlowTemplates";
+	GSList *l;
+	const char *variant_sig = DBUS_TYPE_ARRAY_AS_STRING
+			DBUS_TYPE_ARRAY_AS_STRING
+				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_STRING_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING;
+	const char *array_sig = DBUS_TYPE_ARRAY_AS_STRING
+				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_STRING_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING;
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+						NULL, &dentry);
+
+	dbus_message_iter_append_basic(&dentry, DBUS_TYPE_STRING, &key);
+
+	dbus_message_iter_open_container(&dentry, DBUS_TYPE_VARIANT,
+						variant_sig, &variant);
+	dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY,
+						array_sig, &array);
+
+	for (l = tfts; l; l = l->next) {
+		struct traffic_flow_template *tft = l->data;
+
+		append_tft(tft, &array);
+	}
+
+	dbus_message_iter_close_container(&variant, &array);
+	dbus_message_iter_close_container(&dentry, &variant);
+	dbus_message_iter_close_container(dict, &dentry);
+
 }
 
 static void signal_settings(struct pri_context *ctx, const char *prop,
@@ -846,6 +955,8 @@ static void append_context_properties(struct pri_context *ctx,
 
 	context_settings_append_ipv4_dict(settings, dict);
 	context_settings_append_ipv6_dict(settings, dict);
+
+	append_tft_dicts(ctx->tfts, dict);
 }
 
 static DBusMessage *pri_get_properties(DBusConnection *conn,
@@ -1121,6 +1232,121 @@ static DBusMessage *pri_set_name(struct pri_context *ctx, DBusConnection *conn,
 	return NULL;
 }
 
+static struct traffic_flow_template *parse_tft(DBusMessageIter *dict,
+						DBusMessage *msg,
+						int *errors)
+{
+	unsigned int iterations = 0;
+	struct traffic_flow_template *tft;
+	char *src_ip = NULL;
+	char *netmask = NULL;
+
+	tft = g_new0(struct traffic_flow_template, 1);
+	tft->priority = 1;
+	tft->src_port_end = 0xFFFF;
+	tft->dst_port_end = 0xFFFF;
+
+	while (dbus_message_iter_get_arg_type(dict) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, val;
+		const char *key;
+
+		iterations++;
+
+		dbus_message_iter_recurse(dict, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+
+		if (dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_VARIANT) {
+			*errors += 1;
+			__ofono_error_invalid_args(msg);
+			break;
+		}
+
+		dbus_message_iter_recurse(&entry, &val);
+
+		if (g_str_equal(key, "SourceAddress"))
+			dbus_message_iter_get_basic(&val, &src_ip);
+		else if (g_str_equal(key, "Netmask"))
+			dbus_message_iter_get_basic(&val, &netmask);
+		else if (g_str_equal(key, "ProtocolNumber"))
+			dbus_message_iter_get_basic(&val, &tft->proto_num);
+		else if (g_str_equal(key, "Priority"))
+			dbus_message_iter_get_basic(&val, &tft->priority);
+		else if (g_str_equal(key, "DestinationPortStart"))
+			dbus_message_iter_get_basic(&val, &tft->dst_port_start);
+		else if (g_str_equal(key, "DestinationPortEnd"))
+			dbus_message_iter_get_basic(&val, &tft->dst_port_end);
+		else if (g_str_equal(key, "SourcePortStart"))
+			dbus_message_iter_get_basic(&val, &tft->src_port_start);
+		else if (g_str_equal(key, "SourcePortEnd"))
+			dbus_message_iter_get_basic(&val, &tft->src_port_end);
+		else if (g_str_equal(key, "IPSecSecurityParameterIndex"))
+			dbus_message_iter_get_basic(&val, &tft->ipsec_spi);
+		else if (g_str_equal(key, "TypeOfService"))
+			dbus_message_iter_get_basic(&val, &tft->tos);
+		else if (g_str_equal(key, "TypeOfServiceMask"))
+			dbus_message_iter_get_basic(&val, &tft->tos_mask);
+		else if (g_str_equal(key, "Direction"))
+			dbus_message_iter_get_basic(&val, &tft->direction);
+		else
+			iterations--;
+
+		dbus_message_iter_next(dict);
+	}
+
+	if (!iterations || *errors > 0) {
+		g_free(tft);
+		return NULL;
+	}
+
+	if (src_ip)
+		tft->src_ip = strdup(src_ip);
+
+	if (netmask)
+		tft->netmask = strdup(netmask);
+	else
+		tft->netmask = strdup("255.255.255.255");
+
+	return tft;
+}
+
+static DBusMessage *pri_set_tfts(struct pri_context *ctx,
+					DBusConnection *conn,
+					DBusMessageIter *array,
+					DBusMessage *msg)
+{
+	GSList *tfts = NULL;
+	int errors = 0;
+
+	while (dbus_message_iter_get_arg_type(array) == DBUS_TYPE_ARRAY) {
+		struct traffic_flow_template *tft = NULL;
+		DBusMessageIter dict;
+
+		dbus_message_iter_recurse(array, &dict);
+
+		if (dbus_message_iter_get_arg_type(&dict) != DBUS_TYPE_DICT_ENTRY)
+			return __ofono_error_invalid_args(msg);
+
+		tft = parse_tft(&dict, msg, &errors);
+		if (errors)
+			break;
+
+		tfts = g_slist_append(tfts, tft);
+
+		dbus_message_iter_next(array);
+	}
+
+	if (!errors) {
+		traffic_flow_templates_free(ctx);
+		ctx->tfts = tfts;
+	}
+
+	g_dbus_send_reply(conn, msg, DBUS_TYPE_INVALID);
+
+	return NULL;
+}
+
 static DBusMessage *pri_set_message_proxy(struct pri_context *ctx,
 					DBusConnection *conn,
 					DBusMessage *msg, const char *proxy)
@@ -1327,6 +1553,15 @@ static DBusMessage *pri_set_property(DBusConnection *conn,
 		dbus_message_iter_get_basic(&var, &str);
 
 		return pri_set_auth_method(ctx, conn, msg, str);
+	} else if (!strcmp(property, "TrafficFlowTemplates")) {
+		DBusMessageIter array;
+
+		if (dbus_message_iter_get_arg_type(&var) != DBUS_TYPE_ARRAY)
+			return __ofono_error_invalid_args(msg);
+
+		dbus_message_iter_recurse(&var, &array);
+
+		return pri_set_tfts(ctx, conn, &array, msg);
 	}
 
 	if (ctx->type != OFONO_GPRS_CONTEXT_TYPE_MMS)
@@ -1395,6 +1630,7 @@ static void pri_context_destroy(gpointer userdata)
 {
 	struct pri_context *ctx = userdata;
 
+	traffic_flow_templates_free(ctx);
 	g_free(ctx->proxy_host);
 	g_free(ctx->path);
 	g_free(ctx);
@@ -2804,6 +3040,11 @@ void ofono_gprs_context_set_ipv6_dns_servers(struct ofono_gprs_context *gc,
 
 	g_strfreev(settings->ipv6->dns);
 	settings->ipv6->dns = g_strdupv((char **) dns);
+}
+
+GSList *ofono_gprs_context_get_tfts(struct ofono_gprs_context *gc)
+{
+	return gc->tfts;
 }
 
 int ofono_gprs_driver_register(const struct ofono_gprs_driver *d)

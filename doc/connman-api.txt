@@ -302,3 +302,66 @@ Properties	boolean Active [readwrite]
 		string MessageCenter [readwrite, MMS only]
 
 			Holds the MMSC setting.
+
+		dict TrafficFlowTemplates [readwrite, optional]
+
+			byte Priority [readwrite, optional]
+
+				Default value is 1.
+
+			string SourceAddress [readwrite, optional]
+
+				No default value.
+
+			string Netmask [readwrite, optional]
+
+				Default value is 255.255.255.255.
+
+			uint16 ProtocolNumber [readwrite, optional]
+
+				Specifies the Protocol Number / Next Header
+				attribute of a valid packet filter. It shall
+				contain an IPv4 protocol number or an IPv6
+				next header value.
+
+				Default value is 0.
+
+			uint16 DestinationPortStart [readwrite, optional]
+
+				Default value is 0.
+
+			uint16 DestinationPortEnd [readwrite, optional]
+
+				Default value is 65535.
+
+			uint16 SourcePortStart [readwrite, optional]
+
+				Default value is 0.
+
+			uint16 SourcePortEnd [readwrite, optional]
+
+				Default value is 65535.
+
+			uint32 IPSecSecurityParameterIndex [readwrite, optional]
+
+				Numeric parameter that specifies the IPSec SPI
+				attribute of a valid packet filter which is a
+				32-bit field.
+
+				Default value is 0.
+
+			uint16 TypeOfService [readwrite, optional]
+
+				Default value is 0.
+
+			uint16 TypeOfServiceMask [readwrite, optional]
+
+				Default value is 0.
+
+			byte Direction [readwrite, optional]
+
+				Possible values:
+				0 - pre release 7 TFT filter (default)
+				1 - uplink
+				2 - downlink
+				3 - bidirectional
