@@ -74,24 +74,46 @@ static struct ublox_data ublox_data;
 
 static int get_context_id()
 {
-	int i;
+	int i = 0;
+
+	if (!ublox_data.nactive && ublox_data.default_context_id) {
+		/* Try to assign default context first. */
+		i = ublox_data.default_context_id - 1;
+		goto found;
+	}
 
 	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
-		if (!ublox_data.active[i]) {
-			ublox_data.active[i] = true;
-			return i+1;
-		}
+		if (!ublox_data.active[i])
+			goto found;
 	}
 
 	return 0;
+found:
+	ublox_data.active[i] = true;
+	ublox_data.nactive++;
+
+	return i+1;
 }
 
 static void release_context_id(unsigned cid)
 {
+	int i;
+
 	if (!cid || cid > UBLOX_MAX_DEF_CONTEXT)
 		return;
 
-	ublox_data.active[cid-1] = false;
+	for (i = 0; i < UBLOX_MAX_DEF_CONTEXT; i++) {
+		if (ublox_data.contexts[i].active_context == cid) {
+
+			ublox_data.active[i] = false;
+			ublox_data.nactive--;
+
+			ublox_data.contexts[i].active_context = 0;
+			ublox_data.contexts[i].gprs_cid = 0;
+
+			return;
+		}
+	}
 }
 
 /*
@@ -303,7 +325,8 @@ static void read_uipconf_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	if (!ok) {
 		struct ofono_error error;
 
-		gcd->active_context = 0;
+		release_context_id(gcd->active_context);
+
 		decode_at_error(&error, g_at_result_final_response(result));
 		gcd->cb(&error, gcd->cb_data);
 		return;
@@ -369,47 +392,37 @@ static int ublox_read_ip_config_router(struct ofono_gprs_context *gc)
 
 }
 
-static void cgact_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
+static void ublox_post_activation(struct ofono_gprs_context *gc)
 {
-	struct ofono_gprs_context *gc = user_data;
-	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	struct ofono_modem *modem;
 	const char *network_mode;
-
-	DBG("ok %d", ok);
-	if (!ok) {
-		if (ublox_data.default_context_id &&
-			!ublox_data.nactive) {
-			/*
-			 * Proceed with an already active context known from a
-			 * CGEV ME PDN ACT. That one should be good enough.
-			 */
-			gcd->active_context = ublox_data.default_context_id;
-		} else {
-
-			gcd->active_context = 0;
-			goto fail;
-		}
-	}
-
-	ublox_data.nactive++;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+	int ret = 0;
 
 	modem = ofono_gprs_context_get_modem(gc);
 	network_mode = ofono_modem_get_string(modem, "NetworkMode");
 
-	if (g_str_equal(network_mode, "routed")) {
-		if (ublox_read_ip_config_router(gc) > 0)
-			return;
-	} else if (g_str_equal(network_mode, "bridged")) {
-		if (ublox_read_ip_config_bridge(gc) > 0)
-			return;
-	} else {
-		if (ublox_read_ip_config_bridge(gc) > 0)
-			return;
+	if (g_str_equal(network_mode, "routed"))
+		ret = ublox_read_ip_config_router(gc) ;
+	else
+		ret = ublox_read_ip_config_bridge(gc);
+
+	if (ret <= 0)
+		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+}
+
+static void cgact_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs_context *gc = user_data;
+	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	DBG("ok %d", ok);
+	if (!ok) {
+		release_context_id(gcd->active_context);
+		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
 	}
 
-fail:
-	CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+	ublox_post_activation(gc);
 }
 
 static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
@@ -423,7 +436,7 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	if (!ok) {
 		struct ofono_error error;
 
-		gcd->active_context = 0;
+		release_context_id(gcd->active_context);
 
 		decode_at_error(&error, g_at_result_final_response(result));
 		gcd->cb(&error, gcd->cb_data);
@@ -467,6 +480,7 @@ static void uauthreq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 	if (!ok) {
 		ofono_error("can't authenticate");
+		release_context_id(gcd->active_context);
 		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
 		return;
 	}
@@ -535,7 +549,10 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 	gcd->gprs_cid = ctx->cid;
 	memcpy(gcd->apn, ctx->apn, sizeof(ctx->apn));
 
-	if (strlen(ctx->username) && strlen(ctx->password)) {
+	if (gcd->active_context == ublox_data.default_context_id) {
+		/* Default context already active, only read details. */
+		ublox_post_activation(gc);
+	} else if (strlen(ctx->username) && strlen(ctx->password)) {
 		memcpy(gcd->username, ctx->username, sizeof(ctx->username));
 		memcpy(gcd->password, ctx->password, sizeof(ctx->password));
 		ublox_authenticate(gc);
@@ -558,10 +575,6 @@ static void cgact_disable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	}
 
 	release_context_id(gcd->active_context);
-	gcd->active_context = 0;
-	gcd->gprs_cid = 0;
-
-	ublox_data.nactive--;
 
 	CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
 }
@@ -627,8 +640,8 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 		ublox_data.default_context_id = 0;
 
 	ofono_gprs_context_deactivated(gc, gcd->gprs_cid);
-	gcd->active_context = 0;
-	gcd->gprs_cid = 0;
+
+	release_context_id(gcd->active_context);
 }
 
 
