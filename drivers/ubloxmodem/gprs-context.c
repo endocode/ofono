@@ -157,6 +157,15 @@ static int read_addrnetmask(struct ofono_gprs_context *gc,
 	return ret;
 }
 
+static void callback_with_error(struct gprs_context_data *gcd, GAtResult *res)
+{
+	struct ofono_error error;
+
+	decode_at_error(&error, g_at_result_final_response(res));
+	gcd->cb(&error, gcd->cb_data);
+}
+
+
 static void set_gprs_context_interface(struct ofono_gprs_context *gc)
 {
 	struct ofono_modem *modem;
@@ -323,12 +332,9 @@ static void read_uipconf_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG("ok %d", ok);
 
 	if (!ok) {
-		struct ofono_error error;
-
 		release_context_id(gcd->active_context);
+		callback_with_error(gcd, result);
 
-		decode_at_error(&error, g_at_result_final_response(result));
-		gcd->cb(&error, gcd->cb_data);
 		return;
 	}
 
@@ -419,7 +425,9 @@ static void cgact_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG("ok %d", ok);
 	if (!ok) {
 		release_context_id(gcd->active_context);
-		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		callback_with_error(gcd, result);
+
+		return;
 	}
 
 	ublox_post_activation(gc);
@@ -434,12 +442,9 @@ static void cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG("ok %d", ok);
 
 	if (!ok) {
-		struct ofono_error error;
-
 		release_context_id(gcd->active_context);
+		callback_with_error(gcd, result);
 
-		decode_at_error(&error, g_at_result_final_response(result));
-		gcd->cb(&error, gcd->cb_data);
 		return;
 	}
 
@@ -481,7 +486,8 @@ static void uauthreq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	if (!ok) {
 		ofono_error("can't authenticate");
 		release_context_id(gcd->active_context);
-		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		callback_with_error(gcd, result);
+
 		return;
 	}
 
