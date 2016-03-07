@@ -374,15 +374,7 @@ static void at_gprs_deactivate_primary(struct ofono_gprs_context *gc,
 	gcd->cb = cb;
 	gcd->cb_data = data;
 
-	/* If !gcd->ppp, then it's necessary to call ->cb to allow
-	 * deactivate-context to work. And on the other hand,
-	 * CALLBACK_WITH_SUCCESS must not called when gcd->ppp is TRUE,
-	 * because ppp_disconnect() might have already called the callback.
-	 * Running callback twice also results in a crash. :-( */
-	if (gcd->ppp)
-		g_at_ppp_shutdown(gcd->ppp);
-	else
-		CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
+	g_at_ppp_shutdown(gcd->ppp);
 }
 
 static void at_gprs_detach_shutdown(struct ofono_gprs_context *gc,
@@ -392,15 +384,7 @@ static void at_gprs_detach_shutdown(struct ofono_gprs_context *gc,
 
 	DBG("cid %u", cid);
 
-	/* If !gcd->ppp, then it's necessary to call ->cb to allow
-	 * deactivate-context to work. And on the other hand,
-	 * CALLBACK_WITH_SUCCESS must not called when gcd->ppp is TRUE,
-	 * because ppp_disconnect() might have already called the callback.
-	 * Running callback twice also results in a crash. :-( */
-	if (gcd->ppp)
-		g_at_ppp_shutdown(gcd->ppp);
-	else
-		CALLBACK_WITH_SUCCESS(gcd->cb, gcd->cb_data);
+	g_at_ppp_shutdown(gcd->ppp);
 }
 
 static void cgev_notify(GAtResult *result, gpointer user_data)
