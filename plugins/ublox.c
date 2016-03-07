@@ -109,6 +109,11 @@ static void read_ubmconf_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	int mode = 0;
 	GAtResultIter iter;
 
+	if (!ok) {
+		ofono_error("couldn't read network mode");
+		return;
+	}
+
 	g_at_result_iter_init(&iter, result);
 
 	while (!g_at_result_iter_next(&iter, "+UBMCONF:"))
