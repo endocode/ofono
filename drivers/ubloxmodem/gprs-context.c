@@ -192,7 +192,8 @@ static void cgcontrdp_bridge_cb(gboolean ok, GAtResult *result, gpointer user_da
 	DBG("ok %d", ok);
 
 	if (!ok) {
-		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		callback_with_error(gcd, result);
+
 		return;
 	}
 
@@ -262,7 +263,8 @@ static void cgcontrdp_router_cb(gboolean ok, GAtResult *result, gpointer user_da
 	DBG("ok %d", ok);
 
 	if (!ok) {
-		CALLBACK_WITH_FAILURE(gcd->cb, gcd->cb_data);
+		callback_with_error(gcd, result);
+
 		return;
 	}
 
