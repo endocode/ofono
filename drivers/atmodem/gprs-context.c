@@ -304,8 +304,6 @@ static void at_gprs_activate_primary(struct ofono_gprs_context *gc,
 				break;
 			}
 			break;
-		case OFONO_VENDOR_UBLOX_TOBY_L2:
-			/* Above not true for Toby L2 family, default is ok. */
 		default:
 			snprintf(buf + len, sizeof(buf) - len - 3, ",\"%s\"",
 					ctx->apn);
