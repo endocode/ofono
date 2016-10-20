@@ -42,6 +42,7 @@
 #include "drivers/atmodem/vendor.h"
 
 static const char *cops_prefix[] = { "+COPS:", NULL };
+static const char *cesq_prefix[] = { "+CESQ:", NULL };
 
 struct netmon_driver_data {
 	GAtChat *modem;
@@ -56,6 +57,13 @@ struct req_cb_data {
 
 	struct ofono_network_operator op;
 	int rssi;
+
+	int rxlev;	/* CESQ: Received Signal Strength Indication */
+	int ber;	/* CESQ: Bit Error Rate */
+	int rscp;	/* CESQ: Received Signal Code Powe */
+	int rsrp;	/* CESQ: Reference Signal Received Power */
+	double ecn0;	/* CESQ: Received Energy Ratio */
+	double rsrq;	/* CESQ: Reference Signal Received Quality */
 };
 
 static int ublox_map_radio_access_technology(int tech)
@@ -97,11 +105,132 @@ static gboolean ublox_delayed_register(gpointer user_data)
 	return FALSE;
 }
 
+/* num in [il, ir] -> [ol, or] or -1 if equual to exception e return e */
+static int clamp_int(int num, int il, int ir, int ol, int or, int step, int e)
+{
+	if (num == e)
+		return e;
+	else if (num > ir)
+		return or;
+	else
+		return ol + step * num;
+}
+
+static float clamp_fl(int num, int il, int ir, double ol, double or, float step, int e)
+{
+	if (num == e)
+		return e;
+	else if (num > ir)
+		return or;
+	else
+		return ol + step * num;
+}
+
+static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	enum ublox_cesq_ofono_netmon_info {
+		RXLEV, BER, RSCP, ECN0, RSRQ, RSRP, COUNT
+	};
+
+	struct req_cb_data *cbd = user_data;
+	struct ofono_netmon *nm = cbd->netmon;
+	struct ofono_error error;
+	GAtResultIter iter;
+	int idx, number;
+
+	DBG("ok %d", ok);
+
+	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (!ok) {
+		goto error;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	if (!g_at_result_iter_next(&iter, "+CESQ:"))
+		return;
+
+	for (idx = 0; idx < COUNT; idx++) {
+
+		ok = g_at_result_iter_next_number(&iter, &number);
+		if (!ok) {
+			DBG(" error at idx: %d", idx);
+			goto error;
+		}
+
+		switch (idx) {
+		case RXLEV:
+			cbd->rxlev = clamp_int(number, 0, 63, -110, -48, 1, 99);
+			break;
+		case BER:
+			cbd->ber = number;
+			break;
+		case RSCP:
+			cbd->rscp = clamp_int(number, 0, 96, -121, -25, 1, 255);
+			break;
+		case ECN0:
+			cbd->ecn0 = clamp_fl(number, 0, 49, -24.5, 0.0, 0.5, 255);
+			break;
+		case RSRQ:
+			cbd->rsrq = clamp_fl(number, 0, 34, -19.0, -3.0, 0.5, 255);
+			break;
+		case RSRP:
+			cbd->rsrp = clamp_int(number, 0, 97, -141, -44, 1, 255);
+			break;
+		default:
+			break;
+		}
+	}
+
+	switch (cbd->op.tech) {
+	case OFONO_NETMON_CELL_TYPE_GSM:
+		cbd->rssi = cbd->rxlev;
+		break;
+	case OFONO_NETMON_CELL_TYPE_UMTS:
+		cbd->rssi = cbd->rscp/cbd->ecn0;
+		break;
+	case OFONO_NETMON_CELL_TYPE_LTE:
+		cbd->rssi = cbd->rsrp/cbd->rsrq;
+		break;
+	default:
+		break;
+	}
+
+	DBG(" RXLEV	%d ", cbd->rxlev);
+	DBG(" BER	%d ", cbd->ber);
+	DBG(" RSCP	%d ", cbd->rscp);
+	DBG(" ECN0	%f ", cbd->ecn0);
+	DBG(" RSRQ	%f ", cbd->rsrq);
+	DBG(" RSRP	%d ", cbd->rsrp);
+	DBG(" RSSI	%d ", cbd->rssi);
+
+	ofono_netmon_serving_cell_notify(nm,
+					 cbd->op.tech,
+					 OFONO_NETMON_INFO_OPERATOR, cbd->op.name,
+					 OFONO_NETMON_INFO_RSSI, cbd->rssi,
+					 OFONO_NETMON_INFO_RXLEV, cbd->rxlev,
+					 OFONO_NETMON_INFO_BER, cbd->ber,
+					 OFONO_NETMON_INFO_RSCP, cbd->rscp,
+					 OFONO_NETMON_INFO_ECN0, cbd->ecn0,
+					 OFONO_NETMON_INFO_RSRQ, cbd->rsrq,
+					 OFONO_NETMON_INFO_RSRP, cbd->rsrp,
+					 OFONO_NETMON_INFO_INVALID);
+
+	CALLBACK_WITH_SUCCESS(cbd->cb, cbd->data);
+	g_free(cbd);
+	return;
+
+error:
+	CALLBACK_WITH_FAILURE(cbd->cb, cbd->data);
+	g_free(cbd);
+}
+
 static void cops_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct req_cb_data *cbd = user_data;
-	ofono_netmon_cb_t cb = cbd->cb;
 	struct ofono_netmon *nm = cbd->netmon;
+	struct netmon_driver_data *nmd = ofono_netmon_get_data(nm);
 	struct ofono_error error;
 	GAtResultIter iter;
 	int tech;
@@ -141,19 +270,16 @@ static void cops_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	else
 		cbd->op.tech = ublox_map_radio_access_technology(tech);
 
-
-	ofono_netmon_serving_cell_notify(nm,
-					 cbd->op.tech,
-					 OFONO_NETMON_INFO_INVALID);
-
-	CALLBACK_WITH_SUCCESS(cb, cbd->data);
-	g_free(cbd);
-	return;
+	if (g_at_chat_send(nmd->aux, "AT+CESQ", cesq_prefix,
+			   cesq_cb, cbd, NULL)) {
+		return;
+	}
 
 error:
-	CALLBACK_WITH_FAILURE(cb, cbd->data);
+	CALLBACK_WITH_FAILURE(cbd->cb, cbd->data);
 	g_free(cbd);
 }
+
 
 static void ublox_netmon_request_update(struct ofono_netmon *netmon,
 					ofono_netmon_cb_t cb, void *data)
