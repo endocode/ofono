@@ -19,7 +19,13 @@
  *
  */
 
-#include "ubloxutil.h"
+#ifndef UBLOXUTIL_H
+#define UBLOXUTIL_H
 
-extern void ublox_gprs_context_init(void);
-extern void ublox_gprs_context_exit(void);
+#include <stdio.h>
+
+#include "gatchat.h"
+#include "gatresult.h"
+#include "drivers/atmodem/atutil.h"
+
+#endif

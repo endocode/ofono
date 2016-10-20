@@ -36,9 +36,6 @@
 #include <ofono/modem.h>
 #include <ofono/gprs-context.h>
 
-#include "gatchat.h"
-#include "gatresult.h"
-
 #include "ubloxmodem.h"
 
 static const char *none_prefix[] = { NULL };

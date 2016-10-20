@@ -378,8 +378,7 @@ builtin_sources += drivers/atmodem/atutil.h \
 			drivers/speedupmodem/ussd.c
 
 builtin_modules += ubloxmodem
-builtin_sources += drivers/atmodem/atutil.h \
-			drivers/ubloxmodem/ubloxmodem.h \
+builtin_sources += drivers/ubloxmodem/ubloxmodem.h \
 			drivers/ubloxmodem/ubloxmodem.c \
 			drivers/ubloxmodem/gprs-context.c
 
