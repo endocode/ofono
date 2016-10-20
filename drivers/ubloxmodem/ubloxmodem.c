@@ -35,6 +35,7 @@
 static int ubloxmodem_init(void)
 {
 	ublox_gprs_context_init();
+	ublox_netmon_init();
 
 	return 0;
 }
@@ -42,6 +43,7 @@ static int ubloxmodem_init(void)
 static void ubloxmodem_exit(void)
 {
 	ublox_gprs_context_exit();
+	ublox_netmon_exit();
 }
 
 OFONO_PLUGIN_DEFINE(ubloxmodem, "U-Blox Toby L2 high speed modem driver",
