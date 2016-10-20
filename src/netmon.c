@@ -78,7 +78,8 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 	const char *technology = cell_type_to_tech_name(type);
 	char *mcc = NULL;
 	char *mnc = NULL;
-	int intval;
+	char *op = NULL;
+	int intval = -1;
 	netmon->reply = dbus_message_new_method_return(netmon->pending);
 
 	if (netmon->reply == NULL)
@@ -178,6 +179,43 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 
 			CELL_INFO_DICT_APPEND(&dict, "Strength",
 					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_RSCP:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "ReceivedSignalCodePower",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_ECN0:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "ReceivedEnergyRatio",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_RSRQ:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "ReferenceSignalReceivedQuality",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_RSRP:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "ReferenceSignalReceivedPower",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_OPERATOR:
+			op = va_arg(arglist, char *);
+
+			if (op && strlen(op))
+				ofono_dbus_dict_append(&dict, "Operator",
+						DBUS_TYPE_STRING, &op);
+
 			break;
 
 		case OFONO_NETMON_INFO_INVALID:
