@@ -43,15 +43,6 @@
 	ofono_dbus_dict_append(p_dict, key, dbus_type, &value); \
 } while (0)
 
-#define CELL_INFO_DICT_APPEND2(p_dict, key, info, type, dbus_type, e)	do { \
-	type value; \
-	if (info == e) \
-		break; \
-	value = (type) info; \
-	ofono_dbus_dict_append(p_dict, key, dbus_type, &value); \
-} while (0)
-
-
 static GSList *g_drivers = NULL;
 
 struct ofono_netmon {
@@ -159,8 +150,8 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 		case OFONO_NETMON_INFO_RXLEV:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND2(&dict, "ReceivedSignalStrength",
-					intval, uint8_t, DBUS_TYPE_BYTE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "ReceivedSignalStrength",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_TIMING_ADVANCE:
@@ -180,43 +171,43 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 		case OFONO_NETMON_INFO_BER:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND2(&dict, "BitErrorRate",
-					intval, uint8_t, DBUS_TYPE_BYTE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "BitErrorRate",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_RSSI:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND2(&dict, "Strength",
-					intval, uint8_t, DBUS_TYPE_BYTE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "Strength",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_RSCP:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND2(&dict, "ReceivedSignalCodePower",
-					intval, uint8_t, DBUS_TYPE_BYTE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "ReceivedSignalCodePower",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_ECN0:
 			floatval = va_arg(arglist, double);
 
-			CELL_INFO_DICT_APPEND2(&dict, "ReceivedEnergyRatio",
-					floatval, double, DBUS_TYPE_DOUBLE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "ReceivedEnergyRatio",
+					floatval, double, DBUS_TYPE_DOUBLE);
 			break;
 
 		case OFONO_NETMON_INFO_RSRQ:
 			floatval = va_arg(arglist, double);
 
-			CELL_INFO_DICT_APPEND2(&dict, "ReferenceSignalReceivedQuality",
-					floatval, double, DBUS_TYPE_DOUBLE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "ReferenceSignalReceivedQuality",
+					floatval, double, DBUS_TYPE_DOUBLE);
 			break;
 
 		case OFONO_NETMON_INFO_RSRP:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND2(&dict, "ReferenceSignalReceivedPower",
-					intval, uint8_t, DBUS_TYPE_BYTE, 99);
+			CELL_INFO_DICT_APPEND(&dict, "ReferenceSignalReceivedPower",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_OPERATOR:
