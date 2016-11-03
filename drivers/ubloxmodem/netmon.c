@@ -56,7 +56,6 @@ struct req_cb_data {
 	void *data;
 
 	struct ofono_network_operator op;
-	int rssi;
 
 	int rxlev;	/* CESQ: Received Signal Strength Indication */
 	int ber;	/* CESQ: Bit Error Rate */
@@ -87,11 +86,19 @@ static int ublox_map_radio_access_technology(int tech)
 static inline struct req_cb_data *req_cb_data_new0(void *cb, void *data, void *user)
 {
 	struct req_cb_data *ret = g_new0(struct req_cb_data, 1);
-	if (ret) {
-		ret->cb = cb;
-		ret->data = data;
-		ret->netmon = user;
+	if (!ret) {
+		return NULL;
 	}
+
+	ret->cb = cb;
+	ret->data = data;
+	ret->netmon = user;
+	ret->rxlev = -1;
+	ret->ber = -1;
+	ret->rscp = -1;
+	ret->rsrp = -1;
+	ret->ecn0 = -1;
+	ret->rsrq = -1;
 
 	return ret;
 }
@@ -103,27 +110,6 @@ static gboolean ublox_delayed_register(gpointer user_data)
 	ofono_netmon_register(netmon);
 
 	return FALSE;
-}
-
-/* num in [il, ir] -> [ol, or] or -1 if equual to exception e return e */
-static int clamp_int(int num, int il, int ir, int ol, int or, int step, int e)
-{
-	if (num == e)
-		return e;
-	else if (num > ir)
-		return or;
-	else
-		return ol + step * num;
-}
-
-static float clamp_fl(int num, int il, int ir, double ol, double or, float step, int e)
-{
-	if (num == e)
-		return e;
-	else if (num > ir)
-		return or;
-	else
-		return ol + step * num;
 }
 
 static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
@@ -161,40 +147,26 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 		switch (idx) {
 		case RXLEV:
-			cbd->rxlev = clamp_int(number, 0, 63, -110, -48, 1, 99);
+			cbd->rxlev = number != 99 ? number:cbd->rxlev;
 			break;
 		case BER:
-			cbd->ber = number;
+			cbd->ber = number != 99 ? number:cbd->ber;
 			break;
 		case RSCP:
-			cbd->rscp = clamp_int(number, 0, 96, -121, -25, 1, 255);
+			cbd->rscp= number != 255 ? number:cbd->rscp;
 			break;
 		case ECN0:
-			cbd->ecn0 = clamp_fl(number, 0, 49, -24.5, 0.0, 0.5, 255);
+			cbd->ecn0= number != 255 ? number:cbd->ecn0;
 			break;
 		case RSRQ:
-			cbd->rsrq = clamp_fl(number, 0, 34, -19.0, -3.0, 0.5, 255);
+			cbd->rsrq= number != 255 ? number:cbd->rsrq;
 			break;
 		case RSRP:
-			cbd->rsrp = clamp_int(number, 0, 97, -141, -44, 1, 255);
+			cbd->rsrp= number != 255 ? number:cbd->rsrp;
 			break;
 		default:
 			break;
 		}
-	}
-
-	switch (cbd->op.tech) {
-	case OFONO_NETMON_CELL_TYPE_GSM:
-		cbd->rssi = cbd->rxlev;
-		break;
-	case OFONO_NETMON_CELL_TYPE_UMTS:
-		cbd->rssi = cbd->rscp/cbd->ecn0;
-		break;
-	case OFONO_NETMON_CELL_TYPE_LTE:
-		cbd->rssi = cbd->rsrp/cbd->rsrq;
-		break;
-	default:
-		break;
 	}
 
 	DBG(" RXLEV	%d ", cbd->rxlev);
@@ -203,12 +175,10 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG(" ECN0	%f ", cbd->ecn0);
 	DBG(" RSRQ	%f ", cbd->rsrq);
 	DBG(" RSRP	%d ", cbd->rsrp);
-	DBG(" RSSI	%d ", cbd->rssi);
 
 	ofono_netmon_serving_cell_notify(nm,
 					 cbd->op.tech,
 					 OFONO_NETMON_INFO_OPERATOR, cbd->op.name,
-					 OFONO_NETMON_INFO_RSSI, cbd->rssi,
 					 OFONO_NETMON_INFO_RXLEV, cbd->rxlev,
 					 OFONO_NETMON_INFO_BER, cbd->ber,
 					 OFONO_NETMON_INFO_RSCP, cbd->rscp,
