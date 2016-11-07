@@ -43,6 +43,13 @@
 
 static const char *cops_prefix[] = { "+COPS:", NULL };
 static const char *cesq_prefix[] = { "+CESQ:", NULL };
+static const char *ucged_prefix[] = { "+UCGED:", NULL };
+
+/* Field from +UCGED response */
+typedef struct ublox_ucged_value {
+	int offset;	/* Offset at response */
+	uint8_t base;	/* Decimal or 16 */
+} ublox_ucged_value;
 
 struct netmon_driver_data {
 	GAtChat *modem;
@@ -57,12 +64,24 @@ struct req_cb_data {
 
 	struct ofono_network_operator op;
 
+	/* Netmon fields */
+
 	int rxlev;	/* CESQ: Received Signal Strength Indication */
 	int ber;	/* CESQ: Bit Error Rate */
 	int rscp;	/* CESQ: Received Signal Code Powe */
 	int rsrp;	/* CESQ: Reference Signal Received Power */
 	double ecn0;	/* CESQ: Received Energy Ratio */
 	double rsrq;	/* CESQ: Reference Signal Received Quality */
+
+	int earfcn;	/* UCGED: MODE 2 RAT 4 EARFCN */
+	int lband;	/* UCGED: MODE 2 RAT 4 Lband */
+	int ul_BW;	/* UCGED: MODE 2 RAT 4 ul_BW */
+	int dl_BW;	/* UCGED: MODE 2 RAT 4 dl_BW */
+	int tac;	/* UCGED: MODE 2 RAT 4 tac */
+	int cellid;	/* UCGED: MODE 2 RAT */
+	int lsinr;	/* UCGED: MODE 2 RAT */
+	int cqi;	/* UCGED: MODE 2 RAT */
+	int avg_rsrp;	/* UCGED: MODE 2 RAT */
 };
 
 static int ublox_map_radio_access_technology(int tech)
@@ -93,12 +112,23 @@ static inline struct req_cb_data *req_cb_data_new0(void *cb, void *data, void *u
 	ret->cb = cb;
 	ret->data = data;
 	ret->netmon = user;
+
 	ret->rxlev = -1;
 	ret->ber = -1;
 	ret->rscp = -1;
 	ret->rsrp = -1;
 	ret->ecn0 = -1;
 	ret->rsrq = -1;
+
+	ret->earfcn = -1;
+	ret->lband = -1;
+	ret->ul_BW = -1;
+	ret->dl_BW = -1;
+	ret->tac = -1;
+	ret->cellid = -1;
+	ret->lsinr = -1;
+	ret->cqi = -1;
+	ret->avg_rsrp = -1;
 
 	return ret;
 }
@@ -112,6 +142,252 @@ static gboolean ublox_delayed_register(gpointer user_data)
 	return FALSE;
 }
 
+/* Used to notify about all the data that we have collected so far */
+static void ublox_netmon_finish_success(struct req_cb_data *cbd)
+{
+	struct ofono_netmon *nm = cbd->netmon;
+
+	ofono_netmon_serving_cell_notify(nm,
+					 cbd->op.tech,
+					 OFONO_NETMON_INFO_OPERATOR, cbd->op.name,
+					 OFONO_NETMON_INFO_RXLEV, cbd->rxlev,
+					 OFONO_NETMON_INFO_BER, cbd->ber,
+					 OFONO_NETMON_INFO_RSCP, cbd->rscp,
+					 OFONO_NETMON_INFO_ECN0, cbd->ecn0,
+					 OFONO_NETMON_INFO_RSRQ, cbd->rsrq,
+					 OFONO_NETMON_INFO_RSRP, cbd->rsrp,
+					 OFONO_NETMON_INFO_ARFCN, cbd->earfcn,
+					 OFONO_NETMON_INFO_BAND, cbd->lband,
+					 OFONO_NETMON_INFO_UL_BW, cbd->ul_BW,
+					 OFONO_NETMON_INFO_DL_BW, cbd->dl_BW,
+					 OFONO_NETMON_INFO_TAC, cbd->tac,
+					 OFONO_NETMON_INFO_CI, cbd->cellid,
+					 OFONO_NETMON_INFO_SINR, cbd->lsinr,
+					 OFONO_NETMON_INFO_CQI, cbd->cqi,
+					 OFONO_NETMON_INFO_AVG_RSRP, cbd->avg_rsrp,
+					 OFONO_NETMON_INFO_INVALID);
+
+	CALLBACK_WITH_SUCCESS(cbd->cb, cbd->data);
+	g_free(cbd);
+}
+
+static int ucged_parse_2g(struct req_cb_data *cbd, GAtResultIter *iter)
+{
+	return 0;
+}
+
+static int ucged_parse_3g(struct req_cb_data *cbd, GAtResultIter *iter)
+{
+	return 0;
+}
+
+static int ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
+{
+	enum ucged_mode2_rat4_offsets {
+		EARFCN		= 0,
+		LBAND		= 1,
+		UL_BW		= 2,
+		DL_BW		= 3,
+		TAC		= 4,
+		LCELLID		= 5,
+		LSINR		= 12,
+		CQI		= 15,
+		AVG_RSRP	= 16,
+		VOLTE_MODE	= 21,
+		_MAX		/* End */
+	};
+
+	ublox_ucged_value ucged_values[] = {
+		{ EARFCN,	10 },
+		{ LBAND,	10 },
+		{ UL_BW,	10 },
+		{ DL_BW,	10 },
+		{ TAC,		16 },
+		{ LCELLID,	16 },
+		{ LSINR,	10 },
+		{ CQI,		10 },
+		{ AVG_RSRP,	10 },
+		{ -1,		0  }, /* End of Array */
+	};
+
+	gboolean ok;
+	unsigned i;
+	ublox_ucged_value *ptr;
+
+	/* Skip first fields */
+	g_at_result_iter_next(iter, NULL);
+
+	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
+		const char *str = NULL;
+		int number;
+
+		/* First read the data */
+		ok = g_at_result_iter_next_unquoted_string(iter, &str);
+		if (!ok) {
+			DBG(" UCGED: error parsing at idx: %d ", i);
+			goto out;
+		}
+
+		DBG(" UCGED: RAT = 4G idx: %d  -  reading field: %s ", i, str);
+
+		/* Nothing to do we got all our values */
+		if (ptr->offset < 0)
+			break;
+
+		/* Skip if we are not interested in this value */
+		if (i != (unsigned) ptr->offset)
+			continue;
+
+		errno = 0;
+		number = strtol(str, NULL, ptr->base);
+		if (errno != 0 && number == 0) {
+			DBG(" UCGED: RAT = 4G  idx: %d  failed parsing '%s' ", i, str);
+			continue;
+		}
+
+		switch (i) {
+		case EARFCN:
+			cbd->earfcn = number != 65535 ? number : cbd->earfcn;
+			break;
+		case LBAND:
+			cbd->lband = number != 255 ? number : cbd->lband;
+			break;
+		case UL_BW:
+			cbd->ul_BW = number != 255 ? number : cbd->ul_BW;
+			break;
+		case DL_BW:
+			cbd->dl_BW = number != 255 ? number : cbd->dl_BW;
+			break;
+		case TAC:
+			cbd->tac = number != 0xFFFF ? number : cbd->tac;
+			break;
+		case LCELLID:
+			cbd->cellid = number ? number : cbd->cellid;
+			break;
+		case LSINR:
+			cbd->lsinr = number != 255 ? number : cbd->lsinr;
+			break;
+		case CQI:
+			cbd->cqi = number != 255 ? number : cbd->cqi;
+			break;
+		case AVG_RSRP:
+			cbd->avg_rsrp = number;
+			break;
+		default:
+			break;
+		}
+
+		ptr++;
+	}
+
+	DBG(" UCGED: MODE 2 RAT = 4G	EARFCN = %d ", cbd->earfcn);
+	DBG(" UCGED: MODE 2 RAT = 4G	LBAND = %d ", cbd->lband);
+	DBG(" UCGED: MODE 2 RAT = 4G	UL_BW = %d ", cbd->ul_BW);
+	DBG(" UCGED: MODE 2 RAT = 4G	DL_BW = %d ", cbd->dl_BW);
+	DBG(" UCGED: MODE 2 RAT = 4G	TAC = %x ", cbd->tac);
+	DBG(" UCGED: MODE 2 RAT = 4G	LCELLID = %x ", cbd->cellid);
+	DBG(" UCGED: MODE 2 RAT = 4G	LSINR = %d ", cbd->lsinr);
+	DBG(" UCGED: MODE 2 RAT = 4G	CQI = %d ", cbd->lsinr);
+	DBG(" UCGED: MODE 2 RAT = 4G	AVG_RSRP = %d ", cbd->avg_rsrp);
+
+out:
+	return 0;
+}
+
+static int ucged_parse_rat5(struct req_cb_data *cbd, GAtResultIter *iter)
+{
+	DBG(" UCGED: 'RAT' is 5 , unknown nothing to do. ");
+	return 0;
+}
+
+static void ucged_collect_mode2_data(struct req_cb_data *cbd, GAtResult *result)
+{
+	enum rat_type {
+		RAT2G	= 2,
+		RAT3G	= 3,
+		RAT4G	= 4,
+		RAT5	= 5,
+	};
+
+	int rat;
+	GAtResultIter iter;
+	gboolean ok;
+
+	g_at_result_iter_init(&iter, result);
+
+	g_at_result_iter_next(&iter, NULL);
+	g_at_result_iter_next(&iter, NULL);
+
+	ok = g_at_result_iter_next_number(&iter, &rat);
+	if (!ok) {
+		DBG(" UCGED: error parsing 'RAT' ");
+		return;
+	}
+
+	DBG(" UCGED: RAT	%d ", rat);
+
+	switch (rat) {
+		case RAT2G:
+			ucged_parse_2g(cbd, &iter);
+			break;
+		case RAT3G:
+			ucged_parse_3g(cbd, &iter);
+			break;
+		case RAT4G:
+			ucged_parse_4g(cbd, &iter);
+			break;
+		case RAT5:
+			ucged_parse_rat5(cbd, &iter);
+			break;
+		default:
+			DBG(" UCGED: RAT %d  not supported ", rat);
+			break;
+	}
+
+	return;
+}
+
+static void ucged_query_data_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct req_cb_data *cbd = user_data;
+	struct ofono_error error;
+	GAtResultIter iter;
+	int mode;
+
+	DBG("ok %d", ok);
+
+	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (!ok) {
+		DBG(" UCGED: failed ");
+		goto out;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	if (!g_at_result_iter_next(&iter, "+UCGED:")) {
+		DBG(" UCGED: no result ");
+		goto out;
+	}
+
+	ok = g_at_result_iter_next_number(&iter, &mode);
+	if (!ok) {
+		DBG(" UCGED: error parsing 'mode' ");
+		goto out;
+	}
+
+	DBG(" UCGED:  report mode is %d ", mode);
+
+	/* mode 2 collect +UCGED data */
+	if (mode == 2)
+		ucged_collect_mode2_data(cbd, result);
+
+	/* We never fail at this point we always send what we collected so far */
+out:
+	ublox_netmon_finish_success(cbd);
+	return;
+}
+
 static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	enum ublox_cesq_ofono_netmon_info {
@@ -120,6 +396,7 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 	struct req_cb_data *cbd = user_data;
 	struct ofono_netmon *nm = cbd->netmon;
+	struct netmon_driver_data *nmd = ofono_netmon_get_data(nm);
 	struct ofono_error error;
 	GAtResultIter iter;
 	int idx, number;
@@ -176,20 +453,10 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG(" RSRQ	%f ", cbd->rsrq);
 	DBG(" RSRP	%d ", cbd->rsrp);
 
-	ofono_netmon_serving_cell_notify(nm,
-					 cbd->op.tech,
-					 OFONO_NETMON_INFO_OPERATOR, cbd->op.name,
-					 OFONO_NETMON_INFO_RXLEV, cbd->rxlev,
-					 OFONO_NETMON_INFO_BER, cbd->ber,
-					 OFONO_NETMON_INFO_RSCP, cbd->rscp,
-					 OFONO_NETMON_INFO_ECN0, cbd->ecn0,
-					 OFONO_NETMON_INFO_RSRQ, cbd->rsrq,
-					 OFONO_NETMON_INFO_RSRP, cbd->rsrp,
-					 OFONO_NETMON_INFO_INVALID);
-
-	CALLBACK_WITH_SUCCESS(cbd->cb, cbd->data);
-	g_free(cbd);
-	return;
+	if (g_at_chat_send(nmd->aux, "AT+UCGED?", NULL,
+			   ucged_query_data_cb, cbd, NULL)) {
+		return;
+	}
 
 error:
 	CALLBACK_WITH_FAILURE(cbd->cb, cbd->data);
@@ -264,6 +531,10 @@ static void ublox_netmon_request_update(struct ofono_netmon *netmon,
 		CALLBACK_WITH_FAILURE(cb, data);
 		return;
 	}
+
+	/* Set +UCGED=2 mode as early as possible */
+	g_at_chat_send(nmd->aux, "AT+UCGED=2", ucged_prefix,
+		       NULL, NULL, NULL);
 
 	if (g_at_chat_send(nmd->aux, "AT+COPS?", cops_prefix,
 			   cops_cb, cbd, NULL) == 0) {

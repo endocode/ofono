@@ -216,7 +216,55 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 			if (op && strlen(op))
 				ofono_dbus_dict_append(&dict, "Operator",
 						DBUS_TYPE_STRING, &op);
+			break;
 
+		case OFONO_NETMON_INFO_BAND:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "Band",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_UL_BW:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "UpLinkResourceBlocks",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_DL_BW:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "DownLinkResourceBlocks",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_TAC:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "TrackingAreaCode",
+					intval, uint16_t, DBUS_TYPE_UINT16);
+			break;
+
+		case OFONO_NETMON_INFO_SINR:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "SignalNoiseRatio",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_CQI:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "ChannelQuality",
+					intval, uint8_t, DBUS_TYPE_BYTE);
+			break;
+
+		case OFONO_NETMON_INFO_AVG_RSRP:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "AverageRSRP",
+					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
 		case OFONO_NETMON_INFO_INVALID:
