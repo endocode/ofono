@@ -342,9 +342,145 @@ static void ucged_collect_mode2_data(struct req_cb_data *cbd, GAtResult *result)
 	return;
 }
 
-static void ucged_query_data_cb(gboolean ok, GAtResult *result, gpointer user_data)
+static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
+{
+	GAtResultIter iter;
+	gboolean ok;
+	unsigned i;
+	ublox_ucged_value *ptr;
+
+	/* Offset at the line that we are interested in */
+	enum ucged_mode3_offsets {
+		EARFCN		= 0,
+		LBAND		= 1,
+		UL_BW		= 3,
+		DL_BW		= 4,
+		TAC		= 6,
+		LCELLID		= 7,
+		LSINR		= 10,
+		LRRC		= 11,
+		_MAX		/* End */
+	};
+
+	ublox_ucged_value ucged_values[] = {
+		{ EARFCN,	10 },
+		{ LBAND,	10 },
+		{ UL_BW,	10 },
+		{ DL_BW,	10 },
+		{ TAC,		16 },
+		{ LCELLID,	16 },
+		{ LSINR,	10 },
+		{ -1,		0  }, /* End of Array */
+	};
+
+	g_at_result_iter_init(&iter, result);
+
+	g_at_result_iter_next(&iter, NULL);
+	g_at_result_iter_next(&iter, NULL);
+	g_at_result_iter_next(&iter, NULL);
+	g_at_result_iter_next(&iter, NULL);
+
+	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
+		const char *str = NULL;
+		int number;
+
+		/* First read the data */
+		ok = g_at_result_iter_next_unquoted_string(&iter, &str);
+		if (!ok) {
+			DBG(" UCGED: error parsing at idx: %d ", i);
+			return;
+		}
+
+		DBG(" UCGED: mode 3 idx: %d  -  reading field: %s ", i, str);
+
+		/* Nothing to do we got all our values */
+		if (ptr->offset < 0)
+			break;
+
+		/* Skip if we are not interested in this value */
+		if (i != (unsigned) ptr->offset)
+			continue;
+
+		errno = 0;
+		number = strtol(str, NULL, ptr->base);
+		if (errno != 0 && number == 0) {
+			DBG(" UCGED: mode 3  idx: %d  failed parsing '%s' ", i, str);
+			continue;
+		}
+
+		switch (i) {
+		case EARFCN:
+			cbd->earfcn = number != 65535 ? number : cbd->earfcn;
+			break;
+		case LBAND:
+			cbd->lband = number != 255 ? number : cbd->lband;
+			break;
+		case UL_BW:
+			cbd->ul_BW = number != 255 ? number : cbd->ul_BW;
+			break;
+		case DL_BW:
+			cbd->dl_BW = number != 255 ? number : cbd->dl_BW;
+			break;
+		case TAC:
+			cbd->tac = number != 0xFFFF ? number : cbd->tac;
+			break;
+		case LCELLID:
+			cbd->cellid = number ? number : cbd->cellid;
+			break;
+		case LSINR:
+			cbd->lsinr = number != 255 ? number : cbd->lsinr;
+			break;
+		default:
+			break;
+		}
+
+		ptr++;
+	}
+
+	DBG(" UCGED: MODE 3	EARFCN = %d ", cbd->earfcn);
+	DBG(" UCGED: MODE 3	LBAND = %d ", cbd->lband);
+	DBG(" UCGED: MODE 3	UL_BW = %d ", cbd->ul_BW);
+	DBG(" UCGED: MODE 3	DL_BW = %d ", cbd->dl_BW);
+	DBG(" UCGED: MODE 3	TAC = %x ", cbd->tac);
+	DBG(" UCGED: MODE 3	LCELLID = %x ", cbd->cellid);
+	DBG(" UCGED: MODE 3	LSINR = %d ", cbd->lsinr);
+}
+
+static void ucged_query_mode3_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct req_cb_data *cbd = user_data;
+	struct ofono_error error;
+	GAtResultIter iter;
+
+	DBG("ok %d", ok);
+
+	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (!ok) {
+		DBG(" UCGED: set mode 3 failed ");
+		goto out;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	if (!g_at_result_iter_next(&iter, "+UCGED:")) {
+		DBG(" UCGED: mode 3 no result ");
+		goto out;
+	}
+
+	ucged_collect_mode3_data(cbd, result);
+
+	/* We never fail at this point we always send what we collected so far */
+out:
+	ublox_netmon_finish_success(cbd);
+	return;
+}
+
+static void ucged_query_mode2_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct req_cb_data *cbd = user_data;
+	struct ofono_netmon *nm = cbd->netmon;
+	struct netmon_driver_data *nmd = ofono_netmon_get_data(nm);
 	struct ofono_error error;
 	GAtResultIter iter;
 	int mode;
@@ -354,7 +490,17 @@ static void ucged_query_data_cb(gboolean ok, GAtResult *result, gpointer user_da
 	decode_at_error(&error, g_at_result_final_response(result));
 
 	if (!ok) {
-		DBG(" UCGED: failed ");
+		DBG(" UCGED: query mode 2 failed ");
+		/*
+		 * Here +UCGED mode should be set to 2, however on some
+		 * ublox modems mode 2 does not work, so try mode 3.
+		 * Note that to be in mode 3 you have to be already in
+		 * mode 2.
+		 */
+		if (g_at_chat_send(nmd->aux, "AT+UCGED=3", NULL,
+				   ucged_query_mode3_cb, cbd, NULL)) {
+			return;
+		}
 		goto out;
 	}
 
@@ -449,7 +595,7 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	DBG(" RSRP	%d ", cbd->rsrp);
 
 	if (g_at_chat_send(nmd->aux, "AT+UCGED?", NULL,
-			   ucged_query_data_cb, cbd, NULL)) {
+			   ucged_query_mode2_cb, cbd, NULL)) {
 		return;
 	}
 
