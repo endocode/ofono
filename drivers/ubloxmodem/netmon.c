@@ -171,17 +171,15 @@ static void ublox_netmon_finish_success(struct req_cb_data *cbd)
 	g_free(cbd);
 }
 
-static int ucged_parse_2g(struct req_cb_data *cbd, GAtResultIter *iter)
+static void ucged_parse_2g(struct req_cb_data *cbd, GAtResultIter *iter)
 {
-	return 0;
 }
 
-static int ucged_parse_3g(struct req_cb_data *cbd, GAtResultIter *iter)
+static void ucged_parse_3g(struct req_cb_data *cbd, GAtResultIter *iter)
 {
-	return 0;
 }
 
-static int ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
+static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 {
 	enum ucged_mode2_rat4_offsets {
 		EARFCN		= 0,
@@ -225,7 +223,7 @@ static int ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 		ok = g_at_result_iter_next_unquoted_string(iter, &str);
 		if (!ok) {
 			DBG(" UCGED: error parsing at idx: %d ", i);
-			goto out;
+			return;
 		}
 
 		DBG(" UCGED: RAT = 4G idx: %d  -  reading field: %s ", i, str);
@@ -289,9 +287,6 @@ static int ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	DBG(" UCGED: MODE 2 RAT = 4G	LSINR = %d ", cbd->lsinr);
 	DBG(" UCGED: MODE 2 RAT = 4G	CQI = %d ", cbd->lsinr);
 	DBG(" UCGED: MODE 2 RAT = 4G	AVG_RSRP = %d ", cbd->avg_rsrp);
-
-out:
-	return 0;
 }
 
 static int ucged_parse_rat5(struct req_cb_data *cbd, GAtResultIter *iter)
