@@ -285,7 +285,7 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	DBG(" UCGED: MODE 2 RAT = 4G	TAC = %x ", cbd->tac);
 	DBG(" UCGED: MODE 2 RAT = 4G	LCELLID = %x ", cbd->cellid);
 	DBG(" UCGED: MODE 2 RAT = 4G	LSINR = %d ", cbd->lsinr);
-	DBG(" UCGED: MODE 2 RAT = 4G	CQI = %d ", cbd->lsinr);
+	DBG(" UCGED: MODE 2 RAT = 4G	CQI = %d ", cbd->cqi);
 	DBG(" UCGED: MODE 2 RAT = 4G	AVG_RSRP = %d ", cbd->avg_rsrp);
 }
 
