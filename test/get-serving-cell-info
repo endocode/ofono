@@ -32,8 +32,8 @@ ecn0 = 'ReceivedEnergyRatio'
 rsrq = 'ReferenceSignalReceivedQuality'
 rsrp = 'ReferenceSignalReceivedPower'
 op = 'Operator'
-arfcn = 'ARFCN'
-band = 'Band'
+earfcn = 'EARFCN'
+lband = 'LBand'
 ul_BW = 'UplinkResourceBlocks'
 dl_BW = 'DownlinkResourceBlocks'
 tac = 'TrackingAreaCode'
@@ -85,11 +85,11 @@ if rsrp in servingcell:
 if op in servingcell:
 	print("    [ Operator = %s ]" % (servingcell[op]))
 
-if arfcn in servingcell:
-	print("    [ Absolue Radio Frequency Channel = %d ]" % (servingcell[arfcn]))
+if earfcn in servingcell:
+	print("    [ E-UTRAN Absolue Radio Frequency Channel = %d ]" % (servingcell[earfcn]))
 
-if band in servingcell:
-	print("    [ Band = %d ]" % (servingcell[band]))
+if lband in servingcell:
+	print("    [ LBand = %d ]" % (servingcell[Lband]))
 
 if ul_BW in servingcell:
 	print("    [ Uplink Resource Blocks = %d ]" % (servingcell[ul_BW]))
