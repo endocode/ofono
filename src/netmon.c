@@ -218,10 +218,17 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 						DBUS_TYPE_STRING, &op);
 			break;
 
-		case OFONO_NETMON_INFO_BAND:
+		case OFONO_NETMON_INFO_EARFCN:
 			intval = va_arg(arglist, int);
 
-			CELL_INFO_DICT_APPEND(&dict, "Band",
+			CELL_INFO_DICT_APPEND(&dict, "EARFCN",
+					intval, uint16_t, DBUS_TYPE_UINT16);
+			break;
+
+		case OFONO_NETMON_INFO_LBAND:
+			intval = va_arg(arglist, int);
+
+			CELL_INFO_DICT_APPEND(&dict, "LBand",
 					intval, uint8_t, DBUS_TYPE_BYTE);
 			break;
 
