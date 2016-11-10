@@ -64,7 +64,8 @@ enum ofono_netmon_info {
 	OFONO_NETMON_INFO_RSRQ, /* int */
 	OFONO_NETMON_INFO_RSRP, /* int */
 	OFONO_NETMON_INFO_OPERATOR, /* char *, up to 24 digits */
-	OFONO_NETMON_INFO_BAND, /* int */
+	OFONO_NETMON_INFO_EARFCN, /* int */
+	OFONO_NETMON_INFO_LBAND, /* int */
 	OFONO_NETMON_INFO_UL_BW, /* int */
 	OFONO_NETMON_INFO_DL_BW, /* int */
 	OFONO_NETMON_INFO_TAC, /* int */
