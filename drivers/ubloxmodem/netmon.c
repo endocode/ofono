@@ -349,16 +349,19 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 	unsigned i;
 	ublox_ucged_value *ptr;
 
-	/* Offset at the line that we are interested in */
+	/*
+	 * Offset at the line that we are interested in, the last line of
+	 * +UCGED. Please update what is appropriate to read other fields
+	 */
 	enum ucged_mode3_offsets {
 		EARFCN		= 0,
 		LBAND		= 1,
-		UL_BW		= 3,
-		DL_BW		= 4,
+		UL_BW		= 2,
+		DL_BW		= 3,
 		TAC		= 6,
 		LCELLID		= 7,
-		LSINR		= 10,
-		LRRC		= 11,
+		LSINR		= 11,
+		LRRC		= 12,
 		_MAX		/* End */
 	};
 
