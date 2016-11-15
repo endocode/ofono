@@ -79,7 +79,7 @@ struct req_cb_data {
 	int dl_BW;	/* UCGED: MODE 2 RAT 4 dl_BW */
 	int tac;	/* UCGED: MODE 2 RAT 4 tac */
 	int cellid;	/* UCGED: MODE 2 RAT */
-	int lsinr;	/* UCGED: MODE 2 RAT */
+	double lsinr;	/* UCGED: MODE 2 RAT */
 	int cqi;	/* UCGED: MODE 2 RAT */
 	int avg_rsrp;	/* UCGED: MODE 2 RAT */
 };
@@ -162,7 +162,7 @@ static void ublox_netmon_finish_success(struct req_cb_data *cbd)
 					 OFONO_NETMON_INFO_DL_BW, cbd->dl_BW,
 					 OFONO_NETMON_INFO_TAC, cbd->tac,
 					 OFONO_NETMON_INFO_CI, cbd->cellid,
-					 OFONO_NETMON_INFO_SINR, cbd->lsinr,
+					 OFONO_NETMON_INFO_LSINR, cbd->lsinr,
 					 OFONO_NETMON_INFO_CQI, cbd->cqi,
 					 OFONO_NETMON_INFO_AVG_RSRP, cbd->avg_rsrp,
 					 OFONO_NETMON_INFO_INVALID);
@@ -217,7 +217,7 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 
 	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
 		const char *str = NULL;
-		int number;
+		double number = -1;
 
 		/* First read the data */
 		ok = g_at_result_iter_next_unquoted_string(iter, &str);
@@ -237,7 +237,11 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 			continue;
 
 		errno = 0;
-		number = strtol(str, NULL, ptr->base);
+		if (ptr->base == 10) /* If decimal parse it as a double */
+			number = strtod(str, NULL);
+		else if (ptr->base == 16) /* If hex parse it as a long int */
+			number = strtol(str, NULL, ptr->base);
+
 		if (errno != 0 && number == 0) {
 			DBG(" UCGED: RAT = 4G  idx: %d  failed parsing '%s' ", i, str);
 			continue;
@@ -284,7 +288,7 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	DBG(" UCGED: MODE 2 RAT = 4G	DL_BW = %d ", cbd->dl_BW);
 	DBG(" UCGED: MODE 2 RAT = 4G	TAC = %x ", cbd->tac);
 	DBG(" UCGED: MODE 2 RAT = 4G	LCELLID = %x ", cbd->cellid);
-	DBG(" UCGED: MODE 2 RAT = 4G	LSINR = %d ", cbd->lsinr);
+	DBG(" UCGED: MODE 2 RAT = 4G	LSINR = %f ", cbd->lsinr);
 	DBG(" UCGED: MODE 2 RAT = 4G	CQI = %d ", cbd->cqi);
 	DBG(" UCGED: MODE 2 RAT = 4G	AVG_RSRP = %d ", cbd->avg_rsrp);
 }
@@ -385,7 +389,7 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 
 	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
 		const char *str = NULL;
-		int number;
+		double number = -1;
 
 		/* First read the data */
 		ok = g_at_result_iter_next_unquoted_string(&iter, &str);
@@ -405,7 +409,11 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 			continue;
 
 		errno = 0;
-		number = strtol(str, NULL, ptr->base);
+		if (ptr->base == 10) /* If decimal parse it as a double */
+			number = strtod(str, NULL);
+		else if (ptr->base == 16) /* If hex parse it as a long int */
+			number = strtol(str, NULL, ptr->base);
+
 		if (errno != 0 && number == 0) {
 			DBG(" UCGED: mode 3  idx: %d  failed parsing '%s' ", i, str);
 			continue;
@@ -446,7 +454,7 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 	DBG(" UCGED: MODE 3	DL_BW = %d ", cbd->dl_BW);
 	DBG(" UCGED: MODE 3	TAC = %x ", cbd->tac);
 	DBG(" UCGED: MODE 3	LCELLID = %x ", cbd->cellid);
-	DBG(" UCGED: MODE 3	LSINR = %d ", cbd->lsinr);
+	DBG(" UCGED: MODE 3	LSINR = %f ", cbd->lsinr);
 }
 
 static void ucged_query_mode3_cb(gboolean ok, GAtResult *result, gpointer user_data)
