@@ -47,8 +47,11 @@ static const char *ucged_prefix[] = { "+UCGED:", NULL };
 
 /* Field from +UCGED response */
 typedef struct ublox_ucged_value {
-	int offset;	/* Offset at response */
-	uint8_t base;	/* Decimal or 16 */
+	/* Offset at response */
+	int offset;
+
+	/* fmt how to parse fields: 'd', 'x' or 'f' */
+	const char fmt;
 } ublox_ucged_value;
 
 struct netmon_driver_data {
@@ -142,6 +145,34 @@ static gboolean ublox_delayed_register(gpointer user_data)
 	return FALSE;
 }
 
+/* If conversion fails error is set to errno */
+static double strtonum(const char *str, const char fmt, int *error)
+{
+	double number = -1;
+
+	errno = 0;
+	switch (fmt) {
+	case 'd':
+		/* If decimal parse it as a long int */
+		number = strtol(str, NULL, 10);
+		break;
+	case 'x':
+		/* If hex parse it as a long int in base 16 */
+		number = strtol(str, NULL, 16);
+		break;
+	case 'f':
+	default:
+		/* if float or anything parse it as a double */
+		number = strtod(str, NULL);
+		break;
+	}
+
+	if (errno != 0 && number == 0)
+		*error = -errno;
+
+	return number;
+}
+
 /* Used to notify about all the data that we have collected so far */
 static void ublox_netmon_finish_success(struct req_cb_data *cbd)
 {
@@ -196,16 +227,16 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	};
 
 	ublox_ucged_value ucged_values[] = {
-		{ EARFCN,	10 },
-		{ LBAND,	10 },
-		{ UL_BW,	10 },
-		{ DL_BW,	10 },
-		{ TAC,		16 },
-		{ LCELLID,	16 },
-		{ LSINR,	10 },
-		{ CQI,		10 },
-		{ AVG_RSRP,	10 },
-		{ -1,		0  }, /* End of Array */
+		{ EARFCN,	'd' },
+		{ LBAND,	'd' },
+		{ UL_BW,	'd' },
+		{ DL_BW,	'd' },
+		{ TAC,		'x' },
+		{ LCELLID,	'x' },
+		{ LSINR,	'f' },
+		{ CQI,		'd' },
+		{ AVG_RSRP,	'd' },
+		{ -1,		0   }, /* End of Array */
 	};
 
 	gboolean ok;
@@ -218,6 +249,7 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
 		const char *str = NULL;
 		double number = -1;
+		int err = 0;
 
 		/* First read the data */
 		ok = g_at_result_iter_next_unquoted_string(iter, &str);
@@ -236,13 +268,8 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 		if (i != (unsigned) ptr->offset)
 			continue;
 
-		errno = 0;
-		if (ptr->base == 10) /* If decimal parse it as a double */
-			number = strtod(str, NULL);
-		else if (ptr->base == 16) /* If hex parse it as a long int */
-			number = strtol(str, NULL, ptr->base);
-
-		if (errno != 0 && number == 0) {
+		number = strtonum(str, ptr->fmt, &err);
+		if (err < 0) {
 			DBG(" UCGED: RAT = 4G  idx: %d  failed parsing '%s' ", i, str);
 			continue;
 		}
@@ -370,14 +397,14 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 	};
 
 	ublox_ucged_value ucged_values[] = {
-		{ EARFCN,	10 },
-		{ LBAND,	10 },
-		{ UL_BW,	10 },
-		{ DL_BW,	10 },
-		{ TAC,		16 },
-		{ LCELLID,	16 },
-		{ LSINR,	10 },
-		{ -1,		0  }, /* End of Array */
+		{ EARFCN,	'd' },
+		{ LBAND,	'd' },
+		{ UL_BW,	'd' },
+		{ DL_BW,	'd' },
+		{ TAC,		'x' },
+		{ LCELLID,	'x' },
+		{ LSINR,	'f' },
+		{ -1,		0   }, /* End of Array */
 	};
 
 	g_at_result_iter_init(&iter, result);
@@ -390,6 +417,7 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 	for (i = 0, ptr = &ucged_values[0]; i < _MAX; i++) {
 		const char *str = NULL;
 		double number = -1;
+		int err = 0;
 
 		/* First read the data */
 		ok = g_at_result_iter_next_unquoted_string(&iter, &str);
@@ -408,13 +436,8 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 		if (i != (unsigned) ptr->offset)
 			continue;
 
-		errno = 0;
-		if (ptr->base == 10) /* If decimal parse it as a double */
-			number = strtod(str, NULL);
-		else if (ptr->base == 16) /* If hex parse it as a long int */
-			number = strtol(str, NULL, ptr->base);
-
-		if (errno != 0 && number == 0) {
+		number = strtonum(str, ptr->fmt, &err);
+		if (err < 0) {
 			DBG(" UCGED: mode 3  idx: %d  failed parsing '%s' ", i, str);
 			continue;
 		}
