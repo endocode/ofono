@@ -256,7 +256,7 @@ void ofono_netmon_serving_cell_notify(struct ofono_netmon *netmon,
 		case OFONO_NETMON_INFO_LSINR:
 			intval = va_arg(arglist, double);
 
-			CELL_INFO_DICT_APPEND(&dict, "SignalNoiseRatio",
+			CELL_INFO_DICT_APPEND(&dict, "E-UTRANSignalNoiseRatio",
 					intval, double, DBUS_TYPE_DOUBLE);
 			break;
 
