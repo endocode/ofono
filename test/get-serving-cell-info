@@ -37,7 +37,7 @@ lband = 'LBand'
 ul_BW = 'UplinkResourceBlocks'
 dl_BW = 'DownlinkResourceBlocks'
 tac = 'TrackingAreaCode'
-sinr = 'SignalNoiseRatio'
+lsinr = 'E-UTRANSignalNoiseRatio'
 cqi = 'ChannelQuality'
 avg_rsrp = 'AverageRSRP'
 
@@ -74,7 +74,7 @@ if rscp in servingcell:
 	print("    [ Received Signal Code Power = %f]" % (servingcell[rscp]))
 
 if ecn0 in servingcell:
-	print("    [ Received Energy Ratio = %d]" % (servingcell[ecn0]))
+	print("    [ Received Energy Ratio = %f]" % (servingcell[ecn0]))
 
 if rsrq in servingcell:
 	print("    [ Reference Signal Received Quality = %f]" % (servingcell[rsrq]))
@@ -100,8 +100,8 @@ if dl_BW in servingcell:
 if tac in servingcell:
 	print("    [ Tracking Area Code = %d ]" % (servingcell[tac]))
 
-if sinr in servingcell:
-	print("    [ Signal to Interference and Noise Ratio = %d ]" % (servingcell[sinr]))
+if lsinr in servingcell:
+	print("    [ E-UTRAN Signal to Interference and Noise Ratio = %f ]" % (servingcell[lsinr]))
 
 if cqi in servingcell:
 	print("    [ Channel Quality Indicator = %d ]" % (servingcell[cqi]))
