@@ -89,7 +89,7 @@ if earfcn in servingcell:
 	print("    [ E-UTRAN Absolue Radio Frequency Channel = %d ]" % (servingcell[earfcn]))
 
 if lband in servingcell:
-	print("    [ LBand = %d ]" % (servingcell[Lband]))
+	print("    [ LBand = %d ]" % (servingcell[lband]))
 
 if ul_BW in servingcell:
 	print("    [ Uplink Resource Blocks = %d ]" % (servingcell[ul_BW]))
