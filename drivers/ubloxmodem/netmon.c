@@ -526,7 +526,13 @@ out:
 static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	enum ublox_cesq_ofono_netmon_info {
-		RXLEV, BER, RSCP, ECN0, RSRQ, RSRP, COUNT
+		CESQ_RXLEV,
+		CESQ_BER,
+		CESQ_RSCP,
+		CESQ_ECN0,
+		CESQ_RSRQ,
+		CESQ_RSRP,
+		_MAX,
 	};
 
 	struct req_cb_data *cbd = user_data;
@@ -549,7 +555,7 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	if (!g_at_result_iter_next(&iter, "+CESQ:"))
 		return;
 
-	for (idx = 0; idx < COUNT; idx++) {
+	for (idx = 0; idx < _MAX; idx++) {
 
 		ok = g_at_result_iter_next_number(&iter, &number);
 		if (!ok) {
@@ -558,25 +564,23 @@ static void cesq_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		}
 
 		switch (idx) {
-		case RXLEV:
+		case CESQ_RXLEV:
 			cbd->rxlev = number != 99 ? number:cbd->rxlev;
 			break;
-		case BER:
+		case CESQ_BER:
 			cbd->ber = number != 99 ? number:cbd->ber;
 			break;
-		case RSCP:
+		case CESQ_RSCP:
 			cbd->rscp= number != 255 ? number:cbd->rscp;
 			break;
-		case ECN0:
+		case CESQ_ECN0:
 			cbd->ecn0= number != 255 ? number:cbd->ecn0;
 			break;
-		case RSRQ:
+		case CESQ_RSRQ:
 			cbd->rsrq= number != 255 ? number:cbd->rsrq;
 			break;
-		case RSRP:
+		case CESQ_RSRP:
 			cbd->rsrp= number != 255 ? number:cbd->rsrp;
-			break;
-		default:
 			break;
 		}
 	}
