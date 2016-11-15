@@ -676,10 +676,6 @@ static void ublox_netmon_request_update(struct ofono_netmon *netmon,
 		return;
 	}
 
-	/* Set +UCGED=2 mode as early as possible */
-	g_at_chat_send(nmd->aux, "AT+UCGED=2", ucged_prefix,
-		       NULL, NULL, NULL);
-
 	if (g_at_chat_send(nmd->aux, "AT+COPS?", cops_prefix,
 			   cops_cb, cbd, NULL) == 0) {
 		CALLBACK_WITH_FAILURE(cb, data);
@@ -704,6 +700,10 @@ static int ublox_netmon_probe(struct ofono_netmon *netmon,
 	nmd->aux = g_at_chat_clone(n->aux);
 
 	ofono_netmon_set_data(netmon, nmd);
+
+	/* Set +UCGED=2 mode as early as possible */
+	g_at_chat_send(nmd->aux, "AT+UCGED=2", ucged_prefix,
+		       NULL, NULL, NULL);
 
 	g_idle_add(ublox_delayed_register, netmon);
 
