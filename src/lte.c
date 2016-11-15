@@ -54,6 +54,30 @@ struct ofono_lte {
 
 static GSList *g_drivers = NULL;
 
+static void lte_try_provision(struct ofono_lte *lte)
+{
+	struct ofono_modem *modem = __ofono_atom_get_modem(lte->atom);
+	struct ofono_sim *sim = __ofono_atom_find(OFONO_ATOM_TYPE_SIM, modem);
+	ofono_bool_t ret;
+	struct ofono_gprs_provision_data *pd = NULL;
+	int count = 0;
+
+	ret = __ofono_gprs_provision_get_settings(
+		ofono_sim_get_mcc(sim), ofono_sim_get_mnc(sim),
+		ofono_sim_get_spn(sim), &pd, &count
+	);
+
+	if (ret == FALSE) {
+		ofono_warn(DEFAULT_APN_KEY " provisioning failed.");
+		return;
+	}
+
+	if (is_valid_apn(pd[0].apn))
+		strcpy(lte->info.apn, pd[0].apn);
+
+	__ofono_gprs_provision_free_settings(pd, count);
+}
+
 static void lte_load_settings(struct ofono_lte *lte)
 {
 	char *apn;
@@ -74,6 +98,9 @@ static void lte_load_settings(struct ofono_lte *lte)
 	if (apn) {
 		strcpy(lte->info.apn, apn);
 		g_free(apn);
+	} else {
+		DBG(DEFAULT_APN_KEY " doesn't exist, try provisioning.");
+		lte_try_provision(lte);
 	}
 }
 
