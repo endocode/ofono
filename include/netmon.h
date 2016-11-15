@@ -69,7 +69,7 @@ enum ofono_netmon_info {
 	OFONO_NETMON_INFO_UL_BW, /* int */
 	OFONO_NETMON_INFO_DL_BW, /* int */
 	OFONO_NETMON_INFO_TAC, /* int */
-	OFONO_NETMON_INFO_SINR, /* int */
+	OFONO_NETMON_INFO_LSINR, /* double */
 	OFONO_NETMON_INFO_CQI, /* int */
 	OFONO_NETMON_INFO_AVG_RSRP, /* int */
 	OFONO_NETMON_INFO_INVALID,
