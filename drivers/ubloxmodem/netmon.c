@@ -45,15 +45,6 @@ static const char *cops_prefix[] = { "+COPS:", NULL };
 static const char *cesq_prefix[] = { "+CESQ:", NULL };
 static const char *ucged_prefix[] = { "+UCGED:", NULL };
 
-/* Field from +UCGED response */
-typedef struct ublox_ucged_value {
-	/* Offset at response */
-	int offset;
-
-	/* fmt how to parse fields: 'd', 'x' or 'f' */
-	const char fmt;
-} ublox_ucged_value;
-
 struct netmon_driver_data {
 	GAtChat *modem;
 	GAtChat *aux;
@@ -76,16 +67,25 @@ struct req_cb_data {
 	double ecn0;	/* CESQ: Received Energy Ratio */
 	double rsrq;	/* CESQ: Reference Signal Received Quality */
 
-	int earfcn;	/* UCGED: MODE 2 RAT 4 EARFCN */
-	int lband;	/* UCGED: MODE 2 RAT 4 Lband */
-	int ul_BW;	/* UCGED: MODE 2 RAT 4 ul_BW */
-	int dl_BW;	/* UCGED: MODE 2 RAT 4 dl_BW */
-	int tac;	/* UCGED: MODE 2 RAT 4 tac */
-	int cellid;	/* UCGED: MODE 2 RAT */
-	double lsinr;	/* UCGED: MODE 2 RAT */
-	int cqi;	/* UCGED: MODE 2 RAT */
-	int avg_rsrp;	/* UCGED: MODE 2 RAT */
+	int earfcn;	/* UCGED: E-UTRAN Absolue Radio Frequency Channel */
+	int lband;	/* UCGED: Lband */
+	int ul_BW;	/* UCGED: Uplink Resource Blocks */
+	int dl_BW;	/* UCGED: Downlink Resource Blocks */
+	int tac;	/* UCGED: Tracking Area Code */
+	int cellid;	/* UCGED: CI */
+	double lsinr;	/* UCGED: E-UTRAN Signal to Interference and Noise Ratio */
+	int cqi;	/* UCGED: Channel Quality Indicator */
+	int avg_rsrp;	/* UCGED: Average last 10th RSRP */
 };
+
+/* Field from +UCGED response */
+typedef struct ublox_ucged_value {
+	/* Offset at response */
+	int offset;
+
+	/* fmt how to parse fields: 'd', 'x' or 'f' */
+	const char fmt;
+} ublox_ucged_value;
 
 static int ublox_map_radio_access_technology(int tech)
 {
@@ -98,8 +98,6 @@ static int ublox_map_radio_access_technology(int tech)
 		return OFONO_NETMON_CELL_TYPE_UMTS;
 	case ACCESS_TECHNOLOGY_EUTRAN:
 		return OFONO_NETMON_CELL_TYPE_LTE;
-	default:
-		break;
 	}
 
 	return 0;
@@ -108,14 +106,14 @@ static int ublox_map_radio_access_technology(int tech)
 static inline struct req_cb_data *req_cb_data_new0(void *cb, void *data, void *user)
 {
 	struct req_cb_data *ret = g_new0(struct req_cb_data, 1);
-	if (!ret) {
-		return NULL;
-	}
+	if (ret == NULL)
+		return ret;
 
 	ret->cb = cb;
 	ret->data = data;
 	ret->netmon = user;
 
+	/* Negatives are ignored in ofono by default */
 	ret->rxlev = -1;
 	ret->ber = -1;
 	ret->rscp = -1;
@@ -161,7 +159,6 @@ static double strtonum(const char *str, const char fmt, int *error)
 		number = strtol(str, NULL, 16);
 		break;
 	case 'f':
-	default:
 		/* if float or anything parse it as a double */
 		number = strtod(str, NULL);
 		break;
@@ -202,41 +199,33 @@ static void ublox_netmon_finish_success(struct req_cb_data *cbd)
 	g_free(cbd);
 }
 
-static void ucged_parse_2g(struct req_cb_data *cbd, GAtResultIter *iter)
-{
-}
-
-static void ucged_parse_3g(struct req_cb_data *cbd, GAtResultIter *iter)
-{
-}
-
 static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 {
 	enum ucged_mode2_rat4_offsets {
-		EARFCN		= 0,
-		LBAND		= 1,
-		UL_BW		= 2,
-		DL_BW		= 3,
-		TAC		= 4,
-		LCELLID		= 5,
-		LSINR		= 12,
-		CQI		= 15,
-		AVG_RSRP	= 16,
-		VOLTE_MODE	= 21,
-		_MAX		/* End */
+		UCGED_EARFCN		= 0,
+		UCGED_LBAND		= 1,
+		UCGED_UL_BW		= 2,
+		UCGED_DL_BW		= 3,
+		UCGED_TAC		= 4,
+		UCGED_LCELLID		= 5,
+		UCGED_LSINR		= 12,
+		UCGED_CQI		= 15,
+		UCGED_AVG_RSRP		= 16,
+		UCGED_VOLTE_MODE	= 21,
+		_MAX			= 22,	/* End */
 	};
 
 	ublox_ucged_value ucged_values[] = {
-		{ EARFCN,	'd' },
-		{ LBAND,	'd' },
-		{ UL_BW,	'd' },
-		{ DL_BW,	'd' },
-		{ TAC,		'x' },
-		{ LCELLID,	'x' },
-		{ LSINR,	'f' },
-		{ CQI,		'd' },
-		{ AVG_RSRP,	'd' },
-		{ -1,		0   }, /* End of Array */
+		{ UCGED_EARFCN,		'd'  },
+		{ UCGED_LBAND,		'd'  },
+		{ UCGED_UL_BW,		'd'  },
+		{ UCGED_DL_BW,		'd'  },
+		{ UCGED_TAC,		'x'  },
+		{ UCGED_LCELLID,	'x'  },
+		{ UCGED_LSINR,		'f'  },
+		{ UCGED_CQI,		'd'  },
+		{ UCGED_AVG_RSRP,	'd'  },
+		{ -1,			'\0' },	/* End of Array */
 	};
 
 	gboolean ok;
@@ -275,34 +264,32 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 		}
 
 		switch (i) {
-		case EARFCN:
+		case UCGED_EARFCN:
 			cbd->earfcn = number != 65535 ? number : cbd->earfcn;
 			break;
-		case LBAND:
+		case UCGED_LBAND:
 			cbd->lband = number != 255 ? number : cbd->lband;
 			break;
-		case UL_BW:
+		case UCGED_UL_BW:
 			cbd->ul_BW = number != 255 ? number : cbd->ul_BW;
 			break;
-		case DL_BW:
+		case UCGED_DL_BW:
 			cbd->dl_BW = number != 255 ? number : cbd->dl_BW;
 			break;
-		case TAC:
+		case UCGED_TAC:
 			cbd->tac = number != 0xFFFF ? number : cbd->tac;
 			break;
-		case LCELLID:
+		case UCGED_LCELLID:
 			cbd->cellid = number ? number : cbd->cellid;
 			break;
-		case LSINR:
+		case UCGED_LSINR:
 			cbd->lsinr = number != 255 ? number : cbd->lsinr;
 			break;
-		case CQI:
+		case UCGED_CQI:
 			cbd->cqi = number != 255 ? number : cbd->cqi;
 			break;
-		case AVG_RSRP:
+		case UCGED_AVG_RSRP:
 			cbd->avg_rsrp = number;
-			break;
-		default:
 			break;
 		}
 
@@ -320,21 +307,8 @@ static void ucged_parse_4g(struct req_cb_data *cbd, GAtResultIter *iter)
 	DBG(" UCGED: MODE 2 RAT = 4G	AVG_RSRP = %d ", cbd->avg_rsrp);
 }
 
-static int ucged_parse_rat5(struct req_cb_data *cbd, GAtResultIter *iter)
-{
-	DBG(" UCGED: 'RAT' is 5 , unknown nothing to do. ");
-	return 0;
-}
-
 static void ucged_collect_mode2_data(struct req_cb_data *cbd, GAtResult *result)
 {
-	enum rat_type {
-		RAT2G	= 2,
-		RAT3G	= 3,
-		RAT4G	= 4,
-		RAT5	= 5,
-	};
-
 	int rat;
 	GAtResultIter iter;
 	gboolean ok;
@@ -350,24 +324,12 @@ static void ucged_collect_mode2_data(struct req_cb_data *cbd, GAtResult *result)
 		return;
 	}
 
-	DBG(" UCGED: RAT	%d ", rat);
-
-	switch (rat) {
-		case RAT2G:
-			ucged_parse_2g(cbd, &iter);
-			break;
-		case RAT3G:
-			ucged_parse_3g(cbd, &iter);
-			break;
-		case RAT4G:
-			ucged_parse_4g(cbd, &iter);
-			break;
-		case RAT5:
-			ucged_parse_rat5(cbd, &iter);
-			break;
-		default:
-			DBG(" UCGED: RAT %d  not supported ", rat);
-			break;
+	/* We support only RAT 4 for now */
+	if (rat == 4) {
+		DBG(" UCGED: RAT	%d ", rat);
+		ucged_parse_4g(cbd, &iter);
+	} else {
+		DBG(" UCGED: 'RAT' is %d, nothing to do. ", rat);
 	}
 
 	return;
@@ -385,26 +347,26 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 	 * +UCGED. Please update what is appropriate to read other fields
 	 */
 	enum ucged_mode3_offsets {
-		EARFCN		= 0,
-		LBAND		= 1,
-		UL_BW		= 2,
-		DL_BW		= 3,
-		TAC		= 6,
-		LCELLID		= 7,
-		LSINR		= 11,
-		LRRC		= 12,
-		_MAX		/* End */
+		UCGED_EARFCN		= 0,
+		UCGED_LBAND		= 1,
+		UCGED_UL_BW		= 2,
+		UCGED_DL_BW		= 3,
+		UCGED_TAC		= 6,
+		UCGED_LCELLID		= 7,
+		UCGED_LSINR		= 11,
+		UCGED_LRRC		= 12,
+		_MAX			= 13,	/* End */
 	};
 
 	ublox_ucged_value ucged_values[] = {
-		{ EARFCN,	'd' },
-		{ LBAND,	'd' },
-		{ UL_BW,	'd' },
-		{ DL_BW,	'd' },
-		{ TAC,		'x' },
-		{ LCELLID,	'x' },
-		{ LSINR,	'f' },
-		{ -1,		0   }, /* End of Array */
+		{ UCGED_EARFCN,		'd'  },
+		{ UCGED_LBAND,		'd'  },
+		{ UCGED_UL_BW,		'd'  },
+		{ UCGED_DL_BW,		'd'  },
+		{ UCGED_TAC,		'x'  },
+		{ UCGED_LCELLID,	'x'  },
+		{ UCGED_LSINR,		'f'  },
+		{ -1,			'\0' }, /* End of Array */
 	};
 
 	g_at_result_iter_init(&iter, result);
@@ -443,28 +405,26 @@ static void ucged_collect_mode3_data(struct req_cb_data *cbd, GAtResult *result)
 		}
 
 		switch (i) {
-		case EARFCN:
+		case UCGED_EARFCN:
 			cbd->earfcn = number != 65535 ? number : cbd->earfcn;
 			break;
-		case LBAND:
+		case UCGED_LBAND:
 			cbd->lband = number != 255 ? number : cbd->lband;
 			break;
-		case UL_BW:
+		case UCGED_UL_BW:
 			cbd->ul_BW = number != 255 ? number : cbd->ul_BW;
 			break;
-		case DL_BW:
+		case UCGED_DL_BW:
 			cbd->dl_BW = number != 255 ? number : cbd->dl_BW;
 			break;
-		case TAC:
+		case UCGED_TAC:
 			cbd->tac = number != 0xFFFF ? number : cbd->tac;
 			break;
-		case LCELLID:
+		case UCGED_LCELLID:
 			cbd->cellid = number ? number : cbd->cellid;
 			break;
-		case LSINR:
+		case UCGED_LSINR:
 			cbd->lsinr = number != 255 ? number : cbd->lsinr;
-			break;
-		default:
 			break;
 		}
 
