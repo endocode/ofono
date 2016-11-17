@@ -2016,6 +2016,7 @@ void ofono_gprs_cid_activated(struct ofono_gprs  *gprs, unsigned int cid,
 		pri_set_apn(pri_ctx, conn, NULL, apn);
 	}
 
+	gprs_set_attached_property(gprs, TRUE);
 	gc->driver->read_settings(gc, cid, pri_read_settings_callback, pri_ctx);
 }
 
