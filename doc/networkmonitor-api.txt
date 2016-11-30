@@ -81,3 +81,23 @@ byte Strength [optional, gsm, umts]
 
 	Contains the signal strength.  Valid values are 0-31.  Refer to <rssi>
 	in 27.007, Section 8.5.
+
+byte ReceivedSignalCodePower [optional, umts]
+
+        Contains the Received Signal Code Power.  Valid range of values
+        is 0-255.
+
+byte ReceivedEnergyRatio [optional, umts]
+
+        Contains the Ratio of received energy per PN chip to the total
+        received power spectral density.  Valid range of values is 0-255.
+
+byte ReferenceSignalReceivedQuality [optional, umts]
+
+        Contains the Reference Signal Received Quality.  Valid range of
+        values is 0-255.
+
+byte ReferenceSignalReceivedPower [optional, umts]
+
+        Contains the Reference Signal Received Power.  Valid range of values
+        is 0-255.
