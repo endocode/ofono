@@ -1629,9 +1629,9 @@ static void gprs_attached_update(struct ofono_gprs *gprs)
 		 * right before an attach. We close it to avoid unexpected open
 		 * contexts.
 		 */
-		release_active_contexts(gprs);
+		//release_active_contexts(gprs);
 		gprs->flags |= GPRS_FLAG_ATTACHED_UPDATE;
-		return;
+		//return;
 	}
 
 	gprs_set_attached_property(gprs, attached);

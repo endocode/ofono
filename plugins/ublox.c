@@ -303,7 +303,7 @@ static void ublox_post_sim(struct ofono_modem *modem)
 
 	DBG("%p", modem);
 
-	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
+	gprs = ofono_gprs_create(modem, data->vendor_family, "ubloxmodem",
 					data->aux);
 
 	while (ncontexts) {
