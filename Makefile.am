@@ -382,7 +382,8 @@ builtin_sources += drivers/ubloxmodem/ubloxmodem.h \
 			drivers/ubloxmodem/ubloxmodem.c \
 			drivers/ubloxmodem/gprs-context.c \
 			drivers/ubloxmodem/netmon.c \
-			drivers/ubloxmodem/lte.c
+			drivers/ubloxmodem/lte.c \
+			drivers/ubloxmodem/gprs.c
 
 if PHONESIM
 builtin_modules += phonesim
