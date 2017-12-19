@@ -1611,8 +1611,10 @@ static void gprs_attached_update(struct ofono_gprs *gprs)
 		(gprs->status == NETWORK_REGISTRATION_STATUS_REGISTERED ||
 			gprs->status == NETWORK_REGISTRATION_STATUS_ROAMING);
 
-	if (attached == gprs->attached)
+	if (attached == gprs->attached) {
+		DBG("!!!DBG!!! Is already attached. Just return");
 		return;
+	}
 
 	/*
 	 * If an active context is found, a PPP session might be still active
@@ -1621,17 +1623,19 @@ static void gprs_attached_update(struct ofono_gprs *gprs)
 	 * Active contexts have to be release at driver level.
 	 */
 	if (attached == FALSE) {
+		DBG("!!!DBG!!! Is FALSE");
 		release_active_contexts(gprs);
 		gprs->bearer = -1;
 	} else if (have_active_contexts(gprs) == TRUE) {
+		DBG("!!!DBG!!! Has active context");
 		/*
 		 * Some times the context activates after a detach event and
 		 * right before an attach. We close it to avoid unexpected open
 		 * contexts.
 		 */
-		release_active_contexts(gprs);
+		//release_active_contexts(gprs);
 		gprs->flags |= GPRS_FLAG_ATTACHED_UPDATE;
-		return;
+		//return;
 	}
 
 	gprs_set_attached_property(gprs, attached);

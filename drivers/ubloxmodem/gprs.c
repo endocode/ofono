@@ -54,12 +54,14 @@ struct gprs_data {
 static void at_gprs_set_attached(struct ofono_gprs *gprs, int attached,
 					ofono_gprs_cb_t cb, void *data)
 {
+	// struct gprs_data *gd = ofono_gprs_get_data(gprs);
 	struct ofono_error error;
 	error.type = OFONO_ERROR_TYPE_NO_ERROR;
+	error.error = 0;
 
 	DBG("Calling AT+CGATT=%i is a NoOP. Moving on..", attached ? 1 : 0);
 
-	cb(&error, data);
+	cb(&error, (void*)gprs);
 }
 
 static void at_cgreg_cb(gboolean ok, GAtResult *result, gpointer user_data)
