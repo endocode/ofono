@@ -429,6 +429,16 @@ static void ublox_gprs_deactivate_primary(struct ofono_gprs_context *gc,
 			cgact_disable_cb, gc, NULL);
 }
 
+
+//deactive context on shutdown
+static void ublox_gprs_context_detach_shutdown(struct ofono_gprs_context *gc,
+						unsigned int cid)
+{
+
+	DBG("Ublox detach_shutdown *gc: %p cid: %d", gc, cid);
+	ublox_gprs_deactivate_primary(gc, cid, NULL, NULL);
+}
+
 static void cgev_notify(GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs_context *gc = user_data;
@@ -503,6 +513,7 @@ static struct ofono_gprs_context_driver driver = {
 	.activate_primary	= ublox_gprs_activate_primary,
 	.deactivate_primary	= ublox_gprs_deactivate_primary,
 	.read_settings		= ublox_gprs_read_settings,
+	.detach_shutdown    = ublox_gprs_context_detach_shutdown,
 };
 
 void ublox_gprs_context_init(void)
