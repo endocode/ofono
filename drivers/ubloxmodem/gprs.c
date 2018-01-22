@@ -35,11 +35,57 @@
 #include <ofono/modem.h>
 #include <ofono/gprs.h>
 
+/* Includes for netreg hack */
+#include <ofono/netreg.h>
+#include <gdbus.h>
+/* ------------------------ */
+
 #include "gatchat.h"
 #include "gatresult.h"
 
 
 #include "ubloxmodem.h"
+
+/* What follows are inaccesible internal ofono stuff that we need
+   in order to call netreg related functionality from here
+*/
+enum network_registration_status {
+	NETWORK_REGISTRATION_STATUS_NOT_REGISTERED =	0,
+	NETWORK_REGISTRATION_STATUS_REGISTERED =	1,
+	NETWORK_REGISTRATION_STATUS_SEARCHING =		2,
+	NETWORK_REGISTRATION_STATUS_DENIED =		3,
+	NETWORK_REGISTRATION_STATUS_UNKNOWN =		4,
+	NETWORK_REGISTRATION_STATUS_ROAMING =		5,
+};
+
+struct ofono_gprs {
+	GSList *contexts;
+	ofono_bool_t attached;
+	ofono_bool_t driver_attached;
+	ofono_bool_t roaming_allowed;
+	ofono_bool_t powered;
+	ofono_bool_t suspended;
+	int status;
+	int flags;
+	int bearer;
+	guint suspend_timeout;
+	struct idmap *pid_map;
+	unsigned int last_context_id;
+	struct idmap *cid_map;
+	int netreg_status;
+	struct ofono_netreg *netreg;
+	unsigned int netreg_watch;
+	unsigned int status_watch;
+	GKeyFile *settings;
+	char *imsi;
+	DBusMessage *pending;
+	GSList *context_drivers;
+	const struct ofono_gprs_driver *driver;
+	void *driver_data;
+	struct ofono_atom *atom;
+	unsigned int spn_watch;
+};
+/* ---------------------------------------------------- */
 
 static const char *cgreg_prefix[] = { "+CGREG:", NULL };
 static const char *cgdcont_prefix[] = { "+CGDCONT:", NULL };
@@ -151,11 +197,24 @@ static void cgreg_notify(GAtResult *result, gpointer user_data)
 {
 	struct ofono_gprs *gprs = user_data;
 	int status;
+	int lac;
+	int ci;
+	int tech;
 	struct gprs_data *gd = ofono_gprs_get_data(gprs);
 
 	if (at_util_parse_reg_unsolicited(result, "+CGREG:", &status,
-				NULL, NULL, NULL, gd->vendor) == FALSE)
+				&lac, &ci, &tech, gd->vendor) == FALSE)
 		return;
+
+    /* The modem fails to send +CREG URC some times and the modem stays
+	   in "searching" state. Since we are reciving this URC (CGREG) we
+	   know that the modem is actually registered so we call the
+	   ofono_netreg_status_notify function to fix the registration state
+	*/
+    if (gprs->netreg_status != NETWORK_REGISTRATION_STATUS_REGISTERED) {
+		DBG("Notwork registraton status is wrong. Calling netreg_status_notify from CGREG callback.");
+		ofono_netreg_status_notify(gprs->netreg, status, lac, ci, tech);
+    }
 
 	ofono_gprs_status_notify(gprs, status);
 }
