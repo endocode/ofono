@@ -616,7 +616,40 @@ static void cgreg_notify(GAtResult *result, gpointer user_data)
 		tech = nd->tech;
 
 notify:
-	DBG("Netreg status notify from Ublox netreg.");
+	DBG("+CGREG notify from Ublox netreg.");
+	ofono_netreg_status_notify(netreg, status, lac, ci, tech);
+}
+
+static void cereg_notify(GAtResult *result, gpointer user_data)
+{
+	struct ofono_netreg *netreg = user_data;
+	int status, lac, ci, tech;
+	struct netreg_data *nd = ofono_netreg_get_data(netreg);
+	struct tech_query *tq;
+
+	if (at_util_parse_reg_unsolicited(result, "+CEREG:", &status,
+				&lac, &ci, &tech, nd->vendor) == FALSE)
+		return;
+
+	if (status != 1 && status != 5)
+		goto notify;
+
+	tq = g_try_new0(struct tech_query, 1);
+	if (tq == NULL)
+		goto notify;
+
+	tq->status = status;
+	tq->lac = lac;
+	tq->ci = ci;
+	tq->netreg = netreg;
+
+	g_free(tq);
+
+	if ((status == 1 || status == 5) && tech == -1)
+		tech = nd->tech;
+
+notify:
+	DBG("+CEREG notify from Ublox netreg.");
 	ofono_netreg_status_notify(netreg, status, lac, ci, tech);
 }
 
@@ -646,6 +679,9 @@ static void at_cmer_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	
 	g_at_chat_register(nd->chat, "+CGREG:",
 				cgreg_notify, FALSE, netreg, NULL);
+
+	g_at_chat_register(nd->chat, "+CEREG:",
+				cereg_notify, FALSE, netreg, NULL);
 
 	ofono_netreg_register(netreg);
 }
@@ -877,6 +913,18 @@ static void at_creg_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 }
 
+// CEREG set callback for Ublox staying in searching issue
+static void at_cereg_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_netreg *netreg = user_data;
+
+	if (!ok) {
+		ofono_error("Unable to initialize EPS Network Registration");
+		ofono_netreg_remove(netreg);
+		return;
+	}
+}
+
 static void at_creg_test_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct ofono_netreg *netreg = user_data;
@@ -910,12 +958,18 @@ retry:
 	if (creg2) {
 		g_at_chat_send(nd->chat, "AT+CREG=2", none_prefix,
 				at_creg_set_cb, netreg, NULL);
+		// Enable +CEREG URC
+		g_at_chat_send(nd->chat, "AT+CEREG=2", none_prefix,
+				at_cereg_set_cb, netreg, NULL);
 		return;
 	}
 
 	if (creg1) {
 		g_at_chat_send(nd->chat, "AT+CREG=1", none_prefix,
 				at_creg_set_cb, netreg, NULL);
+		// Enable +CEREG URC
+		g_at_chat_send(nd->chat, "AT+CEREG=2", none_prefix,
+				at_cereg_set_cb, netreg, NULL);
 		return;
 	}
 
