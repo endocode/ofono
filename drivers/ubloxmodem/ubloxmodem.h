@@ -23,6 +23,9 @@
 
 #define UBLOXMODEM "ubloxmodem"
 
+extern void ublox_netreg_init(void);
+extern void ublox_netreg_exit(void);
+
 extern void ublox_gprs_context_init(void);
 extern void ublox_gprs_context_exit(void);
 

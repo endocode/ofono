@@ -35,6 +35,7 @@
 
 static int ubloxmodem_init(void)
 {
+	ublox_netreg_init();
 	ublox_gprs_init();
 	ublox_gprs_context_init();
 	ublox_netmon_init();
@@ -45,6 +46,7 @@ static int ubloxmodem_init(void)
 
 static void ubloxmodem_exit(void)
 {
+	ublox_netreg_exit();
 	ublox_gprs_exit();
 	ublox_gprs_context_exit();
 	ublox_netmon_exit();
