@@ -1538,6 +1538,7 @@ static void at_cmer_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		g_at_chat_register(nd->chat, "+CIEV:",
 				ciev_notify, FALSE, netreg, NULL);
 
+    DBG("====================== IN CMER Registering CREG ======================");
 	g_at_chat_register(nd->chat, "+CREG:",
 				creg_notify, FALSE, netreg, NULL);
 
@@ -1985,11 +1986,13 @@ static void at_creg_set_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		/* Signal strength reporting via CIND is not supported */
 		break;
 	default:
+	    DBG("====================== IN DEFAULT ======================");
 		g_at_chat_send(nd->chat, "AT+CIND=?", cind_prefix,
 				cind_support_cb, netreg, NULL);
 		return;
 	}
 
+	DBG("====================== Registering CREG should not happen here!!!! ======================");
 	g_at_chat_register(nd->chat, "+CREG:",
 				creg_notify, FALSE, netreg, NULL);
 	ofono_netreg_register(netreg);
